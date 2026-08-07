@@ -1,0 +1,246 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI2SQL Connector</title>
+<style>
+  :root {
+    --bg: #0d0d14; --card: #16161f; --border: #2a2a3a;
+    --text: #e8e8f0; --muted: #8a8a9a; --accent: #7c5cff; --accent2: #6247d9;
+    --ok: #2fbf71; --err: #e05252;
+  }
+  * { box-sizing: border-box; margin: 0; }
+  body {
+    background: var(--bg); color: var(--text);
+    font: 15px/1.5 -apple-system, "Segoe UI", system-ui, sans-serif;
+    display: flex; justify-content: center; padding: 48px 16px;
+  }
+  .card {
+    width: 100%; max-width: 460px; background: var(--card);
+    border: 1px solid var(--border); border-radius: 14px; padding: 28px;
+  }
+  h1 { font-size: 19px; margin-bottom: 4px; }
+  .sub { color: var(--muted); font-size: 13px; margin-bottom: 20px; }
+  label { display: block; font-size: 12px; color: var(--muted); margin: 14px 0 6px; text-transform: uppercase; letter-spacing: .5px; }
+  input, select {
+    width: 100%; background: #0f0f18; color: var(--text);
+    border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; font-size: 15px;
+  }
+  input:focus, select:focus, textarea:focus { outline: none; border-color: var(--accent); }
+  .row { display: flex; gap: 10px; }
+  .row > * { flex: 1; }
+  button {
+    width: 100%; margin-top: 18px; padding: 12px; border: 0; border-radius: 8px;
+    background: linear-gradient(180deg, var(--accent), var(--accent2));
+    color: #fff; font-size: 15px; font-weight: 600; cursor: pointer;
+  }
+  button:disabled { opacity: .5; cursor: default; }
+  .btn2 { background: #22222e; border: 1px solid var(--border); }
+  .section { border-top: 1px solid var(--border); margin-top: 26px; padding-top: 4px; }
+  h2 { font-size: 15px; margin-top: 18px; }
+  .account { display: none; margin-top: 6px; padding: 12px 14px; border-radius: 8px;
+             background: rgba(47,191,113,.08); border: 1px solid rgba(47,191,113,.35);
+             font-size: 14px; align-items: center; justify-content: space-between; gap: 10px; }
+  .account .who b { display: block; }
+  .account .who span { color: var(--muted); font-size: 12px; text-transform: capitalize; }
+  .account button { width: auto; margin: 0; padding: 7px 12px; font-size: 12px; }
+  .signin-hint { font-size: 13px; color: var(--muted); margin-top: 10px; line-height: 1.6; }
+  .tables { margin-top: 12px; display: none; }
+  .tbl { background: #0f0f18; border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; margin-top: 8px; }
+  .tbl b { font-size: 13px; }
+  .cols { font-family: ui-monospace, monospace; font-size: 12px; color: var(--muted); margin-top: 4px; line-height: 1.7; }
+  .cols .t { color: #5a8dee; }
+  textarea { width: 100%; background: #0f0f18; color: var(--text); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; font-size: 14px; min-height: 64px; resize: vertical; font-family: inherit; }
+  pre.sql { background: #0a0a12; border: 1px solid var(--border); border-radius: 8px; padding: 14px; margin-top: 12px; font-size: 13px; overflow-x: auto; white-space: pre-wrap; display: none; font-family: ui-monospace, monospace; color: #b8e28a; }
+  .spin { display: inline-block; width: 12px; height: 12px; border: 2px solid var(--muted); border-top-color: transparent; border-radius: 50%; animation: r .8s linear infinite; vertical-align: -2px; margin-right: 8px; }
+  @keyframes r { to { transform: rotate(360deg); } }
+  .quota { display: none; margin-top: 12px; padding: 12px 14px; border-radius: 8px; font-size: 13px;
+           background: rgba(255,193,7,.08); border: 1px solid rgba(255,193,7,.35); color: #e8c96a; }
+  .quota a { color: #ffd54f; }
+  .hint { font-size: 12px; color: var(--muted); margin-top: 18px; line-height: 1.6; }
+  .copybtn { width: auto; margin: 10px 0 0; padding: 7px 14px; font-size: 12px; display: none; }
+</style>
+</head>
+<body>
+<div class="card">
+  <h1>AI2SQL Connector</h1>
+  <div class="sub">Generate SQL for your local database. Your data and credentials never leave this machine.</div>
+
+  <div id="signinBox">
+    <button id="signin">Sign in with AI2SQL</button>
+    <div class="signin-hint">
+      Opens ai2sql.io in your browser. Your generations use your own AI2SQL
+      plan and its limits.
+    </div>
+  </div>
+  <div class="account" id="account">
+    <div class="who"><b id="accEmail"></b><span id="accPlan"></span></div>
+    <button class="btn2" id="signout">Sign out</button>
+  </div>
+
+  <div class="section">
+    <h2>Your database</h2>
+    <div class="row" style="margin-top:10px">
+      <select id="driver">
+        <option value="postgres">PostgreSQL</option>
+        <option value="mysql">MySQL</option>
+        <option value="sqlserver">SQL Server</option>
+      </select>
+      <input id="target" value="localhost:5432" spellcheck="false">
+    </div>
+    <div class="row" style="margin-top:10px">
+      <input id="dbUser" placeholder="username" spellcheck="false">
+      <input id="dbPass" type="password" placeholder="password (optional)">
+    </div>
+    <label for="dbName">Database name</label>
+    <input id="dbName" placeholder="mydb" spellcheck="false">
+    <button id="inspect" class="btn2">Load tables</button>
+    <div id="tables" class="tables"></div>
+  </div>
+
+  <div class="section">
+    <h2>Generate SQL</h2>
+    <label for="prompt">Ask in plain language — your tables above are used as context</label>
+    <textarea id="prompt" placeholder="e.g. total revenue per customer, highest first"></textarea>
+    <button id="gen">Generate SQL</button>
+    <div class="quota" id="quota"></div>
+    <pre class="sql" id="sqlOut"></pre>
+    <button class="btn2 copybtn" id="copySql">Copy SQL</button>
+  </div>
+
+  <div class="hint">
+    Only your question and the table/column names above are sent to AI2SQL to
+    generate SQL — never your data or passwords. Close this app any time.
+  </div>
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const DEFAULT_PORTS = { postgres: '5432', mysql: '3306', sqlserver: '1433' };
+let schemaStr = '';
+
+// ---- auth ----
+async function refreshAuth() {
+  try {
+    const d = await (await fetch('/api/auth/status')).json();
+    $('signinBox').style.display = d.authenticated ? 'none' : 'block';
+    $('account').style.display = d.authenticated ? 'flex' : 'none';
+    if (d.authenticated) {
+      $('accEmail').textContent = d.email || 'Signed in';
+      $('accPlan').textContent = d.plan ? d.plan + ' plan' : '';
+    }
+    return d.authenticated;
+  } catch (e) { return false; }
+}
+
+$('signin').addEventListener('click', async () => {
+  const d = await (await fetch('/api/auth/start')).json();
+  window.open(d.url, '_blank');
+  // The browser tab finishes the sign-in; poll until it lands.
+  const t = setInterval(async () => { if (await refreshAuth()) clearInterval(t); }, 1500);
+});
+
+$('signout').addEventListener('click', async () => {
+  await fetch('/api/auth/logout', { method: 'POST' });
+  refreshAuth();
+});
+
+// ---- schema ----
+$('driver').addEventListener('change', () => {
+  const t = $('target').value.trim();
+  const host = t.includes(':') ? t.split(':')[0] : (t || 'localhost');
+  $('target').value = host + ':' + DEFAULT_PORTS[$('driver').value];
+});
+
+$('inspect').addEventListener('click', async () => {
+  const [host, port] = $('target').value.trim().split(':');
+  $('inspect').disabled = true;
+  $('inspect').innerHTML = '<span class="spin"></span>Reading schema…';
+  try {
+    const r = await fetch('/api/db/inspect', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        driver: $('driver').value, host, port,
+        user: $('dbUser').value.trim(), password: $('dbPass').value,
+        database: $('dbName').value.trim()
+      })
+    });
+    const d = await r.json();
+    const box = $('tables');
+    box.style.display = 'block';
+    if (!d.ok) {
+      box.innerHTML = '<div class="tbl" style="border-color:rgba(224,82,82,.5)">' + esc(d.error) + '</div>';
+      schemaStr = '';
+      return;
+    }
+    schemaStr = d.schema;
+    box.innerHTML = d.tables.map(t =>
+      '<div class="tbl"><b>' + esc(t.name) + '</b><div class="cols">' +
+      t.columns.map(c => esc(c.name) + ' <span class="t">' + esc(c.type) + '</span>').join(' · ') +
+      '</div></div>'
+    ).join('') || '<div class="tbl">No tables found in this database.</div>';
+  } catch (e) {
+    $('tables').style.display = 'block';
+    $('tables').innerHTML = '<div class="tbl">' + esc(e.message) + '</div>';
+  } finally {
+    $('inspect').disabled = false;
+    $('inspect').textContent = 'Load tables';
+  }
+});
+
+// ---- generate ----
+$('gen').addEventListener('click', async () => {
+  const prompt = $('prompt').value.trim();
+  if (!prompt) return;
+  if (!(await refreshAuth())) {
+    $('quota').style.display = 'block';
+    $('quota').textContent = 'Sign in with your AI2SQL account first — the button is at the top.';
+    return;
+  }
+  $('quota').style.display = 'none';
+  $('gen').disabled = true;
+  $('gen').innerHTML = '<span class="spin"></span>Generating…';
+  const out = $('sqlOut');
+  try {
+    const dialects = { postgres: 'postgres', mysql: 'mysql', sqlserver: 'sql_server' };
+    const r = await fetch('/api/generate', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prompt, dialect: dialects[$('driver').value], schema: schemaStr })
+    });
+    const d = await r.json();
+    if (!d.ok && d.quota) {
+      $('quota').style.display = 'block';
+      $('quota').innerHTML = esc(d.error) + ' <a href="https://ai2sql.io/dashboard/choose-plan" target="_blank">Upgrade</a>';
+      return;
+    }
+    if (!d.ok && d.error === 'not_authenticated') {
+      refreshAuth();
+      $('quota').style.display = 'block';
+      $('quota').textContent = d.detail || 'Please sign in again.';
+      return;
+    }
+    out.style.display = 'block';
+    out.textContent = d.ok ? d.sql : 'Error: ' + (d.error || 'generation failed');
+    $('copySql').style.display = d.ok ? 'inline-block' : 'none';
+  } catch (e) {
+    out.style.display = 'block';
+    out.textContent = 'Error: ' + e.message;
+  } finally {
+    $('gen').disabled = false;
+    $('gen').textContent = 'Generate SQL';
+  }
+});
+
+$('copySql').addEventListener('click', function () {
+  navigator.clipboard.writeText($('sqlOut').textContent);
+  this.textContent = 'Copied!';
+  setTimeout(() => { this.textContent = 'Copy SQL'; }, 1800);
+});
+
+function esc(t) { const d = document.createElement('div'); d.textContent = t || ''; return d.innerHTML; }
+
+refreshAuth();
+</script>
+</body>
+</html>
