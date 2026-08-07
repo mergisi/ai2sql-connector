@@ -46,11 +46,31 @@
   .account .who span { color: var(--muted); font-size: 12px; text-transform: capitalize; }
   .account button { width: auto; margin: 0; padding: 7px 12px; font-size: 12px; }
   .signin-hint { font-size: 13px; color: var(--muted); margin-top: 10px; line-height: 1.6; }
-  .tables { margin-top: 12px; display: none; }
-  .tbl { background: #0f0f18; border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; margin-top: 8px; }
-  .tbl b { font-size: 13px; }
-  .cols { font-family: ui-monospace, monospace; font-size: 12px; color: var(--muted); margin-top: 4px; line-height: 1.7; }
+  .tbl { background: #0f0f18; border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; margin-top: 8px; font-size: 13px; }
+  .cols { font-family: ui-monospace, monospace; font-size: 12px; color: var(--muted); margin-top: 3px; line-height: 1.65; }
   .cols .t { color: #5a8dee; }
+  /* Table picker: a dropdown of checkboxes, so the schema stops being a wall
+     of text and the user can aim the prompt at the tables they care about. */
+  .picker { position: relative; margin-top: 12px; display: none; }
+  .picker-toggle { width: 100%; margin: 0; background: #0f0f18; border: 1px solid var(--border);
+                   color: var(--text); font-size: 14px; font-weight: 400; text-align: left;
+                   padding: 11px 12px; display: flex; justify-content: space-between; align-items: center; }
+  .picker-toggle:hover { border-color: var(--accent); }
+  .chev { color: var(--muted); font-size: 12px; }
+  .picker-menu { display: none; position: absolute; z-index: 20; left: 0; right: 0; top: calc(100% + 6px);
+                 background: #14141d; border: 1px solid var(--border); border-radius: 10px; padding: 8px;
+                 box-shadow: 0 12px 32px rgba(0,0,0,.55); }
+  .picker.open .picker-menu { display: block; }
+  .picker-search { width: 100%; margin-bottom: 6px; padding: 8px 10px; font-size: 13px; }
+  .picker-actions { display: flex; gap: 6px; margin-bottom: 6px; }
+  .picker-actions button { flex: 1; margin: 0; padding: 6px; font-size: 12px; background: #22222e;
+                           border: 1px solid var(--border); font-weight: 400; }
+  .picker-list { max-height: 260px; overflow-y: auto; }
+  .picker-item { display: flex; gap: 10px; padding: 8px; border-radius: 7px; cursor: pointer; align-items: flex-start; }
+  .picker-item:hover { background: #1c1c28; }
+  .picker-item input { width: auto; margin-top: 3px; accent-color: var(--accent); flex: 0 0 auto; }
+  .picker-item .meta { min-width: 0; }
+  .picker-item b { font-size: 13px; display: block; }
   textarea { width: 100%; background: #0f0f18; color: var(--text); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; font-size: 14px; min-height: 64px; resize: vertical; font-family: inherit; }
   pre.sql { background: #0a0a12; border: 1px solid var(--border); border-radius: 8px; padding: 14px; margin-top: 12px; font-size: 13px; overflow-x: auto; white-space: pre-wrap; display: none; font-family: ui-monospace, monospace; color: #b8e28a; }
   .spin { display: inline-block; width: 12px; height: 12px; border: 2px solid var(--muted); border-top-color: transparent; border-radius: 50%; animation: r .8s linear infinite; vertical-align: -2px; margin-right: 8px; }
@@ -96,7 +116,21 @@
     <label for="dbName">Database name</label>
     <input id="dbName" placeholder="mydb" spellcheck="false">
     <button id="inspect" class="btn2">Load tables</button>
-    <div id="tables" class="tables"></div>
+
+    <div id="picker" class="picker">
+      <button type="button" id="pickerToggle" class="picker-toggle">
+        <span id="pickerLabel">No tables loaded</span><span class="chev">▾</span>
+      </button>
+      <div id="pickerMenu" class="picker-menu">
+        <input id="tableSearch" class="picker-search" placeholder="Search tables…" spellcheck="false">
+        <div class="picker-actions">
+          <button type="button" data-all="1">Select all</button>
+          <button type="button" data-all="0">Clear</button>
+        </div>
+        <div id="tableList" class="picker-list"></div>
+      </div>
+      <div id="tableError" class="tbl" style="display:none"></div>
+    </div>
   </div>
 
   <div class="section">
@@ -118,7 +152,8 @@
 <script>
 const $ = (id) => document.getElementById(id);
 const DEFAULT_PORTS = { postgres: '5432', mysql: '3306', sqlserver: '1433' };
-let schemaStr = '';
+let allTables = [];          // [{name, columns:[{name,type}]}]
+const selected = new Set();  // table names sent as generation context
 
 // ---- auth ----
 async function refreshAuth() {
@@ -168,27 +203,74 @@ $('inspect').addEventListener('click', async () => {
       })
     });
     const d = await r.json();
-    const box = $('tables');
-    box.style.display = 'block';
+    $('picker').style.display = 'block';
+    const err = $('tableError');
     if (!d.ok) {
-      box.innerHTML = '<div class="tbl" style="border-color:rgba(224,82,82,.5)">' + esc(d.error) + '</div>';
-      schemaStr = '';
+      err.style.display = 'block';
+      err.style.borderColor = 'rgba(224,82,82,.5)';
+      err.textContent = d.error;
+      allTables = []; selected.clear(); renderPicker();
       return;
     }
-    schemaStr = d.schema;
-    box.innerHTML = d.tables.map(t =>
-      '<div class="tbl"><b>' + esc(t.name) + '</b><div class="cols">' +
-      t.columns.map(c => esc(c.name) + ' <span class="t">' + esc(c.type) + '</span>').join(' · ') +
-      '</div></div>'
-    ).join('') || '<div class="tbl">No tables found in this database.</div>';
+    err.style.display = 'none';
+    allTables = d.tables || [];
+    selected.clear();
+    allTables.forEach(t => selected.add(t.name)); // everything on by default
+    renderPicker();
   } catch (e) {
-    $('tables').style.display = 'block';
-    $('tables').innerHTML = '<div class="tbl">' + esc(e.message) + '</div>';
+    $('picker').style.display = 'block';
+    $('tableError').style.display = 'block';
+    $('tableError').textContent = e.message;
   } finally {
     $('inspect').disabled = false;
     $('inspect').textContent = 'Load tables';
   }
 });
+
+// ---- table picker ----
+function renderPicker() {
+  const q = $('tableSearch').value.trim().toLowerCase();
+  const shown = allTables.filter(t => !q || t.name.toLowerCase().includes(q));
+  $('tableList').innerHTML = shown.map(t =>
+    '<label class="picker-item"><input type="checkbox" data-t="' + esc(t.name) + '"' +
+    (selected.has(t.name) ? ' checked' : '') + '>' +
+    '<span class="meta"><b>' + esc(t.name) + '</b><span class="cols">' +
+    t.columns.map(c => esc(c.name) + ' <span class="t">' + esc(c.type) + '</span>').join(' · ') +
+    '</span></span></label>'
+  ).join('') || '<div class="tbl">No tables match.</div>';
+
+  const n = selected.size, total = allTables.length;
+  $('pickerLabel').textContent = total === 0 ? 'No tables found'
+    : n === 0 ? 'No tables selected — pick at least one'
+    : n === total ? 'All ' + total + ' tables selected'
+    : n + ' of ' + total + ' tables selected';
+}
+
+$('pickerToggle').addEventListener('click', () => $('picker').classList.toggle('open'));
+$('tableSearch').addEventListener('input', renderPicker);
+$('tableList').addEventListener('change', (e) => {
+  const cb = e.target.closest('input[data-t]');
+  if (!cb) return;
+  cb.checked ? selected.add(cb.dataset.t) : selected.delete(cb.dataset.t);
+  renderPicker();
+});
+document.querySelectorAll('.picker-actions button').forEach(b => b.addEventListener('click', () => {
+  selected.clear();
+  if (b.dataset.all === '1') allTables.forEach(t => selected.add(t.name));
+  renderPicker();
+}));
+// Click-away closes the menu, as any dropdown should.
+document.addEventListener('click', (e) => {
+  if (!$('picker').contains(e.target)) $('picker').classList.remove('open');
+});
+
+// Only the selected tables become generation context — a focused schema
+// gives the model less room to invent joins across unrelated tables.
+function schemaOfSelection() {
+  return allTables.filter(t => selected.has(t.name))
+    .map(t => t.name + ':' + t.columns.map(c => c.name + '(' + c.type + ')').join(','))
+    .join(';');
+}
 
 // ---- generate ----
 $('gen').addEventListener('click', async () => {
@@ -199,6 +281,11 @@ $('gen').addEventListener('click', async () => {
     $('quota').textContent = 'Sign in with your AI2SQL account first — the button is at the top.';
     return;
   }
+  if (allTables.length && selected.size === 0) {
+    $('quota').style.display = 'block';
+    $('quota').textContent = 'Select at least one table above, or the query has nothing to work with.';
+    return;
+  }
   $('quota').style.display = 'none';
   $('gen').disabled = true;
   $('gen').innerHTML = '<span class="spin"></span>Generating…';
@@ -207,7 +294,7 @@ $('gen').addEventListener('click', async () => {
     const dialects = { postgres: 'postgres', mysql: 'mysql', sqlserver: 'sql_server' };
     const r = await fetch('/api/generate', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ prompt, dialect: dialects[$('driver').value], schema: schemaStr })
+      body: JSON.stringify({ prompt, dialect: dialects[$('driver').value], schema: schemaOfSelection() })
     });
     const d = await r.json();
     if (!d.ok && d.quota) {
