@@ -102,6 +102,41 @@ func main() {
 	}
 	track.Track("connector_app_started", map[string]any{"signed_in": creds.Get().Key != ""})
 
+	// A stored sign-in is a snapshot; the account is not. Revalidate against
+	// the API on startup so a revoked key signs itself out and a plan change
+	// (free→pro, cancellations) shows correctly instead of last month's truth.
+	if c := creds.Get(); c.Key != "" {
+		go func() {
+			req, err := http.NewRequest("GET", *builderURL+"/api/connector/me", nil)
+			if err != nil {
+				return
+			}
+			req.Header.Set("X-API-Key", c.Key)
+			client := &http.Client{Timeout: 10 * time.Second}
+			res, err := client.Do(req)
+			if err != nil {
+				return // offline — keep the stored session, generation will surface real errors
+			}
+			defer res.Body.Close()
+			if res.StatusCode == http.StatusUnauthorized {
+				log.Printf("stored sign-in is no longer valid, signing out")
+				creds.Clear()
+				return
+			}
+			var me struct {
+				ID    string `json:"id"`
+				Email string `json:"email"`
+				Plan  string `json:"plan"`
+			}
+			if json.NewDecoder(res.Body).Decode(&me) == nil && me.Email != "" {
+				cur := creds.Get()
+				cur.Email, cur.Plan, cur.UserID = me.Email, me.Plan, me.ID
+				creds.Set(cur)
+				track.SetUser(me.ID)
+			}
+		}()
+	}
+
 	if *noUI {
 		if *code == "" || *target == "" {
 			log.Fatal("--no-ui requires --code and --target")
