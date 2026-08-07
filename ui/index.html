@@ -40,7 +40,9 @@
 
   /* ---- main ---- */
   .main { overflow:auto; padding:20px; }
-  .cols { display:grid; grid-template-columns:300px minmax(340px,1fr) minmax(320px,1.05fr); gap:16px; align-items:start; }
+  /* Two columns: settings on the left, the whole query flow stacked on the
+     right so the generated SQL sits directly under the prompt that made it. */
+  .cols { display:grid; grid-template-columns:320px minmax(420px,1fr); gap:16px; align-items:start; max-width:1500px; }
   .card { background:var(--panel); border:1px solid var(--border); border-radius:14px; padding:18px; }
   .card h2 { font-size:14px; display:flex; align-items:center; gap:8px; padding-bottom:12px; margin-bottom:14px; border-bottom:1px solid var(--border); }
   .card h2 .ic { color:var(--accent); }
@@ -77,14 +79,14 @@
           border:1px solid var(--border); border-radius:14px; padding:20px; margin-bottom:16px; }
   .hero h1 { font-size:21px; letter-spacing:-.4px; }
   .hero p { color:var(--muted); font-size:13px; margin-top:4px; }
-  .nl { display:flex; flex-direction:column; min-height:340px; padding:0; overflow:hidden; }
+  .nl { display:flex; flex-direction:column; padding:0; overflow:hidden; }
   .nl-head { display:flex; align-items:center; gap:8px; padding:14px 18px; border-bottom:1px solid var(--border); font-size:12px; color:var(--muted); letter-spacing:.6px; text-transform:uppercase; }
-  .nl textarea { flex:1; border:0; border-radius:0; background:transparent; padding:16px 18px; font-size:14.5px; line-height:1.65; resize:none; min-height:180px; }
+  .nl textarea { flex:1; border:0; border-radius:0; background:transparent; padding:16px 18px; font-size:14.5px; line-height:1.65; resize:vertical; min-height:130px; }
   .nl-foot { display:flex; justify-content:space-between; align-items:center; gap:10px; padding:12px 14px; border-top:1px solid var(--border); background:var(--panel2); }
   .hint-sm { font-size:11.5px; color:var(--dim); }
 
   /* sql column */
-  .sqlcard { padding:0; overflow:hidden; display:flex; flex-direction:column; min-height:340px; }
+  .sqlcard { padding:0; overflow:hidden; display:flex; flex-direction:column; min-height:260px; }
   .sql-head { display:flex; align-items:center; justify-content:space-between; gap:10px; padding:13px 16px; border-bottom:1px solid var(--border); }
   .sql-head .t { display:flex; align-items:center; gap:8px; font-size:11.5px; color:var(--muted); letter-spacing:.6px; text-transform:uppercase; }
   .sql-head .t .ok { color:var(--ok); }
@@ -104,7 +106,7 @@
           border-radius:50%; animation:r .8s linear infinite; vertical-align:-2px; margin-right:7px; }
   @keyframes r { to { transform:rotate(360deg); } }
 
-  @media (max-width:1180px) { .cols { grid-template-columns:280px 1fr; } .sqlcard { grid-column:1 / -1; } }
+  @media (max-width:1180px) { .cols { grid-template-columns:280px 1fr; } }
   @media (max-width:900px) {
     .app { grid-template-columns:1fr; height:auto; }
     .side { border-right:0; border-bottom:1px solid var(--border); }
@@ -191,21 +193,21 @@
           </div>
         </section>
         <div class="msg" id="genMsg"></div>
-      </div>
 
-      <!-- result -->
-      <section class="card sqlcard">
-        <div class="sql-head">
-          <div class="t"><span class="ok" id="sqlDot" style="visibility:hidden">✓</span> Generated SQL</div>
-          <button id="copySql" style="visibility:hidden">⧉ Copy</button>
-        </div>
-        <div class="sql-body placeholder" id="sqlOut">Your generated SQL will appear here.</div>
-        <div class="sql-foot" id="sqlFoot" style="display:none">
-          <span id="metaDialect"></span>
-          <span id="metaTables"></span>
-          <span id="metaTime" style="margin-left:auto"></span>
-        </div>
-      </section>
+        <!-- result sits directly under the prompt that produced it -->
+        <section class="card sqlcard" style="margin-top:16px">
+          <div class="sql-head">
+            <div class="t"><span class="ok" id="sqlDot" style="visibility:hidden">✓</span> Generated SQL</div>
+            <button id="copySql" style="visibility:hidden">⧉ Copy</button>
+          </div>
+          <div class="sql-body placeholder" id="sqlOut">Your generated SQL will appear here.</div>
+          <div class="sql-foot" id="sqlFoot" style="display:none">
+            <span id="metaDialect"></span>
+            <span id="metaTables"></span>
+            <span id="metaTime" style="margin-left:auto"></span>
+          </div>
+        </section>
+      </div>
     </div>
   </main>
 </div>
