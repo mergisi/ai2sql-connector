@@ -6,266 +6,313 @@
 <title>AI2SQL Connector</title>
 <style>
   :root {
-    --bg: #0d0d14; --card: #16161f; --border: #2a2a3a;
-    --text: #e8e8f0; --muted: #8a8a9a; --accent: #7c5cff; --accent2: #6247d9;
-    --ok: #2fbf71; --err: #e05252;
+    --bg:#0b0b12; --panel:#12121c; --panel2:#161622; --border:#262636;
+    --text:#e9e9f2; --muted:#8b8b9e; --dim:#6a6a7d;
+    --accent:#7c5cff; --accent2:#6247d9; --ok:#2fbf71; --err:#e05252; --warn:#e8c96a;
+    --code:#b8e28a; --kw:#7c9dff; --str:#6fd0a8;
   }
-  * { box-sizing: border-box; margin: 0; }
-  body {
-    background: var(--bg); color: var(--text);
-    font: 15px/1.5 -apple-system, "Segoe UI", system-ui, sans-serif;
-    display: flex; justify-content: center; padding: 48px 16px;
+  * { box-sizing:border-box; margin:0; }
+  html, body { height:100%; }
+  body { background:var(--bg); color:var(--text); font:14px/1.55 -apple-system,"Segoe UI",system-ui,sans-serif; }
+
+  .app { display:grid; grid-template-columns:236px 1fr; height:100vh; }
+
+  /* ---- sidebar ---- */
+  .side { background:var(--panel); border-right:1px solid var(--border); display:flex; flex-direction:column; padding:18px 14px; }
+  .brand { display:flex; align-items:center; gap:9px; font-weight:700; font-size:15px; letter-spacing:-.3px; padding:0 6px 18px; }
+  .brand .dot { width:9px; height:9px; border-radius:50%; background:var(--accent); box-shadow:0 0 10px var(--accent); flex:0 0 auto; }
+  .acct { background:var(--panel2); border:1px solid var(--border); border-radius:11px; padding:12px; }
+  .acct .avatar { width:34px; height:34px; border-radius:9px; background:linear-gradient(140deg,var(--accent),var(--accent2));
+                  display:flex; align-items:center; justify-content:center; font-weight:700; font-size:14px; color:#fff; }
+  .acct .top { display:flex; gap:10px; align-items:center; }
+  .acct .who { min-width:0; }
+  .acct .who b { display:block; font-size:12.5px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .acct .who span { font-size:11.5px; color:var(--muted); text-transform:capitalize; }
+  .acct .link { display:block; width:100%; margin-top:10px; background:none; border:0; color:var(--muted);
+                font-size:12px; text-align:left; cursor:pointer; padding:0; }
+  .acct .link:hover { color:var(--text); }
+  .signin-side { width:100%; margin-top:0; }
+  .side-note { font-size:11.5px; color:var(--dim); line-height:1.6; margin-top:10px; padding:0 4px; }
+  .side-foot { margin-top:auto; padding-top:14px; }
+  .status-row { display:flex; align-items:center; gap:8px; font-size:12px; color:var(--muted); padding:8px 6px; }
+  .status-row .d { width:7px; height:7px; border-radius:50%; background:var(--dim); }
+  .status-row.on .d { background:var(--ok); }
+
+  /* ---- main ---- */
+  .main { overflow:auto; padding:20px; }
+  .cols { display:grid; grid-template-columns:300px minmax(340px,1fr) minmax(320px,1.05fr); gap:16px; align-items:start; }
+  .card { background:var(--panel); border:1px solid var(--border); border-radius:14px; padding:18px; }
+  .card h2 { font-size:14px; display:flex; align-items:center; gap:8px; padding-bottom:12px; margin-bottom:14px; border-bottom:1px solid var(--border); }
+  .card h2 .ic { color:var(--accent); }
+  label { display:block; font-size:10.5px; color:var(--muted); letter-spacing:.7px; text-transform:uppercase; margin:12px 0 5px; }
+  input, select, textarea {
+    width:100%; background:#0d0d16; color:var(--text); border:1px solid var(--border);
+    border-radius:9px; padding:9px 11px; font-size:13.5px; font-family:inherit;
   }
-  .card {
-    width: 100%; max-width: 460px; background: var(--card);
-    border: 1px solid var(--border); border-radius: 14px; padding: 28px;
+  input:focus, select:focus, textarea:focus { outline:none; border-color:var(--accent); }
+  .two { display:grid; grid-template-columns:1fr 88px; gap:9px; }
+  button { border:0; border-radius:9px; cursor:pointer; font-family:inherit; font-weight:600; }
+  .primary { background:linear-gradient(180deg,var(--accent),var(--accent2)); color:#fff; padding:11px 18px; font-size:13.5px; }
+  .primary:disabled { opacity:.55; cursor:default; }
+  .ghost { background:var(--panel2); color:var(--text); border:1px solid var(--border); padding:10px; font-size:13px; width:100%; font-weight:500; }
+  .ghost:hover { border-color:var(--accent); }
+
+  /* active tables */
+  .chips { display:flex; flex-wrap:wrap; gap:7px; }
+  .chip { display:inline-flex; align-items:center; gap:6px; background:#0d0d16; border:1px solid var(--border);
+          color:var(--muted); border-radius:8px; padding:6px 10px; font-size:12.5px; cursor:pointer;
+          font-family:ui-monospace,monospace; }
+  .chip:hover { border-color:var(--accent); color:var(--text); }
+  .chip.on { background:rgba(124,92,255,.14); border-color:var(--accent); color:var(--text); }
+  .chip .n { color:var(--dim); font-size:11px; }
+  .chip.on .n { color:var(--muted); }
+  .empty { color:var(--dim); font-size:12.5px; }
+  .tblbar { display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; gap:8px; }
+  .tblbar span { font-size:11.5px; color:var(--muted); }
+  .tblbar button { background:none; border:0; color:var(--muted); font-size:11.5px; cursor:pointer; font-weight:500; padding:0; }
+  .tblbar button:hover { color:var(--accent); }
+
+  /* generate column */
+  .hero { background:linear-gradient(135deg,rgba(124,92,255,.16),rgba(98,71,217,.05));
+          border:1px solid var(--border); border-radius:14px; padding:20px; margin-bottom:16px; }
+  .hero h1 { font-size:21px; letter-spacing:-.4px; }
+  .hero p { color:var(--muted); font-size:13px; margin-top:4px; }
+  .nl { display:flex; flex-direction:column; min-height:340px; padding:0; overflow:hidden; }
+  .nl-head { display:flex; align-items:center; gap:8px; padding:14px 18px; border-bottom:1px solid var(--border); font-size:12px; color:var(--muted); letter-spacing:.6px; text-transform:uppercase; }
+  .nl textarea { flex:1; border:0; border-radius:0; background:transparent; padding:16px 18px; font-size:14.5px; line-height:1.65; resize:none; min-height:180px; }
+  .nl-foot { display:flex; justify-content:space-between; align-items:center; gap:10px; padding:12px 14px; border-top:1px solid var(--border); background:var(--panel2); }
+  .hint-sm { font-size:11.5px; color:var(--dim); }
+
+  /* sql column */
+  .sqlcard { padding:0; overflow:hidden; display:flex; flex-direction:column; min-height:340px; }
+  .sql-head { display:flex; align-items:center; justify-content:space-between; gap:10px; padding:13px 16px; border-bottom:1px solid var(--border); }
+  .sql-head .t { display:flex; align-items:center; gap:8px; font-size:11.5px; color:var(--muted); letter-spacing:.6px; text-transform:uppercase; }
+  .sql-head .t .ok { color:var(--ok); }
+  .sql-head button { background:none; border:0; color:var(--muted); font-size:12px; cursor:pointer; display:flex; gap:5px; align-items:center; font-weight:500; }
+  .sql-head button:hover { color:var(--text); }
+  .sql-body { flex:1; overflow:auto; padding:16px; font-family:ui-monospace,monospace; font-size:12.5px; line-height:1.75; white-space:pre-wrap; word-break:break-word; color:var(--code); }
+  .sql-body .kw { color:var(--kw); }
+  .sql-body.placeholder { color:var(--dim); font-family:inherit; font-size:13px; display:flex; align-items:center; justify-content:center; text-align:center; padding:30px; }
+  .sql-foot { display:flex; gap:18px; padding:11px 16px; border-top:1px solid var(--border); background:var(--panel2); font-size:11.5px; color:var(--muted); }
+  .sql-foot b { color:var(--text); font-weight:600; }
+
+  .msg { display:none; margin-top:12px; padding:11px 13px; border-radius:9px; font-size:12.5px; }
+  .msg.err { display:block; background:rgba(224,82,82,.09); border:1px solid rgba(224,82,82,.35); color:#f0a0a0; }
+  .msg.warn { display:block; background:rgba(232,201,106,.08); border:1px solid rgba(232,201,106,.32); color:var(--warn); }
+  .msg a { color:var(--warn); }
+  .spin { display:inline-block; width:12px; height:12px; border:2px solid currentColor; border-top-color:transparent;
+          border-radius:50%; animation:r .8s linear infinite; vertical-align:-2px; margin-right:7px; }
+  @keyframes r { to { transform:rotate(360deg); } }
+
+  @media (max-width:1180px) { .cols { grid-template-columns:280px 1fr; } .sqlcard { grid-column:1 / -1; } }
+  @media (max-width:900px) {
+    .app { grid-template-columns:1fr; height:auto; }
+    .side { border-right:0; border-bottom:1px solid var(--border); }
+    .cols { grid-template-columns:1fr; }
   }
-  h1 { font-size: 19px; margin-bottom: 4px; }
-  .sub { color: var(--muted); font-size: 13px; margin-bottom: 20px; }
-  label { display: block; font-size: 12px; color: var(--muted); margin: 14px 0 6px; text-transform: uppercase; letter-spacing: .5px; }
-  input, select {
-    width: 100%; background: #0f0f18; color: var(--text);
-    border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; font-size: 15px;
-  }
-  input:focus, select:focus, textarea:focus { outline: none; border-color: var(--accent); }
-  .row { display: flex; gap: 10px; }
-  .row > * { flex: 1; }
-  button {
-    width: 100%; margin-top: 18px; padding: 12px; border: 0; border-radius: 8px;
-    background: linear-gradient(180deg, var(--accent), var(--accent2));
-    color: #fff; font-size: 15px; font-weight: 600; cursor: pointer;
-  }
-  button:disabled { opacity: .5; cursor: default; }
-  .btn2 { background: #22222e; border: 1px solid var(--border); }
-  .section { border-top: 1px solid var(--border); margin-top: 26px; padding-top: 4px; }
-  h2 { font-size: 15px; margin-top: 18px; }
-  .account { display: none; margin-top: 6px; padding: 12px 14px; border-radius: 8px;
-             background: rgba(47,191,113,.08); border: 1px solid rgba(47,191,113,.35);
-             font-size: 14px; align-items: center; justify-content: space-between; gap: 10px; }
-  .account .who b { display: block; }
-  .account .who span { color: var(--muted); font-size: 12px; text-transform: capitalize; }
-  .account button { width: auto; margin: 0; padding: 7px 12px; font-size: 12px; }
-  .signin-hint { font-size: 13px; color: var(--muted); margin-top: 10px; line-height: 1.6; }
-  .tbl { background: #0f0f18; border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; margin-top: 8px; font-size: 13px; }
-  .cols { font-family: ui-monospace, monospace; font-size: 12px; color: var(--muted); margin-top: 3px; line-height: 1.65; }
-  .cols .t { color: #5a8dee; }
-  /* Table picker: a dropdown of checkboxes, so the schema stops being a wall
-     of text and the user can aim the prompt at the tables they care about. */
-  .picker { position: relative; margin-top: 12px; display: none; }
-  .picker-toggle { width: 100%; margin: 0; background: #0f0f18; border: 1px solid var(--border);
-                   color: var(--text); font-size: 14px; font-weight: 400; text-align: left;
-                   padding: 11px 12px; display: flex; justify-content: space-between; align-items: center; }
-  .picker-toggle:hover { border-color: var(--accent); }
-  .chev { color: var(--muted); font-size: 12px; }
-  .picker-menu { display: none; position: absolute; z-index: 20; left: 0; right: 0; top: calc(100% + 6px);
-                 background: #14141d; border: 1px solid var(--border); border-radius: 10px; padding: 8px;
-                 box-shadow: 0 12px 32px rgba(0,0,0,.55); }
-  .picker.open .picker-menu { display: block; }
-  .picker-search { width: 100%; margin-bottom: 6px; padding: 8px 10px; font-size: 13px; }
-  .picker-actions { display: flex; gap: 6px; margin-bottom: 6px; }
-  .picker-actions button { flex: 1; margin: 0; padding: 6px; font-size: 12px; background: #22222e;
-                           border: 1px solid var(--border); font-weight: 400; }
-  .picker-list { max-height: 260px; overflow-y: auto; }
-  .picker-item { display: flex; gap: 10px; padding: 8px; border-radius: 7px; cursor: pointer; align-items: flex-start; }
-  .picker-item:hover { background: #1c1c28; }
-  .picker-item input { width: auto; margin-top: 3px; accent-color: var(--accent); flex: 0 0 auto; }
-  .picker-item .meta { min-width: 0; }
-  .picker-item b { font-size: 13px; display: block; }
-  textarea { width: 100%; background: #0f0f18; color: var(--text); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; font-size: 14px; min-height: 64px; resize: vertical; font-family: inherit; }
-  pre.sql { background: #0a0a12; border: 1px solid var(--border); border-radius: 8px; padding: 14px; margin-top: 12px; font-size: 13px; overflow-x: auto; white-space: pre-wrap; display: none; font-family: ui-monospace, monospace; color: #b8e28a; }
-  .spin { display: inline-block; width: 12px; height: 12px; border: 2px solid var(--muted); border-top-color: transparent; border-radius: 50%; animation: r .8s linear infinite; vertical-align: -2px; margin-right: 8px; }
-  @keyframes r { to { transform: rotate(360deg); } }
-  .quota { display: none; margin-top: 12px; padding: 12px 14px; border-radius: 8px; font-size: 13px;
-           background: rgba(255,193,7,.08); border: 1px solid rgba(255,193,7,.35); color: #e8c96a; }
-  .quota a { color: #ffd54f; }
-  .hint { font-size: 12px; color: var(--muted); margin-top: 18px; line-height: 1.6; }
-  .copybtn { width: auto; margin: 10px 0 0; padding: 7px 14px; font-size: 12px; display: none; }
 </style>
 </head>
 <body>
-<div class="card">
-  <h1>AI2SQL Connector</h1>
-  <div class="sub">Generate SQL for your local database. Your data and credentials never leave this machine.</div>
+<div class="app">
+  <aside class="side">
+    <div class="brand"><span class="dot"></span>AI2SQL Connector</div>
 
-  <div id="signinBox">
-    <button id="signin">Sign in with AI2SQL</button>
-    <div class="signin-hint">
-      Opens ai2sql.io in your browser. Your generations use your own AI2SQL
-      plan and its limits.
+    <div id="signinBox">
+      <button class="primary signin-side" id="signin">Sign in with AI2SQL</button>
+      <div class="side-note">Generations use your own AI2SQL plan and its limits.</div>
     </div>
-  </div>
-  <div class="account" id="account">
-    <div class="who"><b id="accEmail"></b><span id="accPlan"></span></div>
-    <button class="btn2" id="signout">Sign out</button>
-  </div>
 
-  <div class="section">
-    <h2>Your database</h2>
-    <div class="row" style="margin-top:10px">
-      <select id="driver">
-        <option value="postgres">PostgreSQL</option>
-        <option value="mysql">MySQL</option>
-        <option value="sqlserver">SQL Server</option>
-      </select>
-      <input id="target" value="localhost:5432" spellcheck="false">
-    </div>
-    <div class="row" style="margin-top:10px">
-      <input id="dbUser" placeholder="username" spellcheck="false">
-      <input id="dbPass" type="password" placeholder="password (optional)">
-    </div>
-    <label for="dbName">Database name</label>
-    <input id="dbName" placeholder="mydb" spellcheck="false">
-    <button id="inspect" class="btn2">Load tables</button>
-
-    <div id="picker" class="picker">
-      <button type="button" id="pickerToggle" class="picker-toggle">
-        <span id="pickerLabel">No tables loaded</span><span class="chev">▾</span>
-      </button>
-      <div id="pickerMenu" class="picker-menu">
-        <input id="tableSearch" class="picker-search" placeholder="Search tables…" spellcheck="false">
-        <div class="picker-actions">
-          <button type="button" data-all="1">Select all</button>
-          <button type="button" data-all="0">Clear</button>
-        </div>
-        <div id="tableList" class="picker-list"></div>
+    <div class="acct" id="account" style="display:none">
+      <div class="top">
+        <div class="avatar" id="accInitial">?</div>
+        <div class="who"><b id="accEmail"></b><span id="accPlan"></span></div>
       </div>
-      <div id="tableError" class="tbl" style="display:none"></div>
+      <button class="link" id="signout">Sign out</button>
     </div>
-  </div>
 
-  <div class="section">
-    <h2>Generate SQL</h2>
-    <label for="prompt">Ask in plain language — your tables above are used as context</label>
-    <textarea id="prompt" placeholder="e.g. total revenue per customer, highest first"></textarea>
-    <button id="gen">Generate SQL</button>
-    <div class="quota" id="quota"></div>
-    <pre class="sql" id="sqlOut"></pre>
-    <button class="btn2 copybtn" id="copySql">Copy SQL</button>
-  </div>
+    <div class="side-foot">
+      <div class="status-row" id="dbStatus"><span class="d"></span><span id="dbStatusText">No schema loaded</span></div>
+      <button class="ghost" id="newQuery">＋ New query</button>
+      <div class="side-note">
+        Runs entirely on your machine. Only your question and table names are
+        sent to AI2SQL.
+      </div>
+    </div>
+  </aside>
 
-  <div class="hint">
-    Only your question and the table/column names above are sent to AI2SQL to
-    generate SQL — never your data or passwords. Close this app any time.
-  </div>
+  <main class="main">
+    <div class="cols">
+      <!-- connection -->
+      <div>
+        <section class="card">
+          <h2><span class="ic">◉</span> Connection</h2>
+          <label for="driver">Database type</label>
+          <select id="driver">
+            <option value="postgres">PostgreSQL</option>
+            <option value="mysql">MySQL</option>
+            <option value="sqlserver">SQL Server</option>
+          </select>
+          <div class="two">
+            <div><label for="host">Host</label><input id="host" value="localhost" spellcheck="false"></div>
+            <div><label for="port">Port</label><input id="port" value="5432" spellcheck="false"></div>
+          </div>
+          <label for="dbUser">Username</label>
+          <input id="dbUser" placeholder="username" spellcheck="false">
+          <label for="dbPass">Password</label>
+          <input id="dbPass" type="password" placeholder="optional">
+          <label for="dbName">Database</label>
+          <input id="dbName" placeholder="my_database" spellcheck="false">
+          <button class="ghost" id="inspect" style="margin-top:16px">⟳ Load schema</button>
+          <div class="msg" id="connMsg"></div>
+        </section>
+
+        <section class="card" style="margin-top:16px">
+          <h2><span class="ic">▤</span> Active tables</h2>
+          <div class="tblbar">
+            <span id="tblCount">Load your schema first</span>
+            <span><button data-all="1">All</button> · <button data-all="0">None</button></span>
+          </div>
+          <div class="chips" id="chips"><span class="empty">No tables yet.</span></div>
+        </section>
+      </div>
+
+      <!-- generate -->
+      <div>
+        <div class="hero">
+          <h1>Generate Query</h1>
+          <p>Transform plain English into SQL for your own tables.</p>
+        </div>
+        <section class="card nl">
+          <div class="nl-head"><span class="ic" style="color:var(--ok)">▤</span> Natural language input</div>
+          <textarea id="prompt" placeholder="Find all customers who ordered in the last 30 days and spent more than $100. Include their email and total spent."></textarea>
+          <div class="nl-foot">
+            <span class="hint-sm" id="ctxHint">No tables selected</span>
+            <button class="primary" id="gen">✦ Generate SQL</button>
+          </div>
+        </section>
+        <div class="msg" id="genMsg"></div>
+      </div>
+
+      <!-- result -->
+      <section class="card sqlcard">
+        <div class="sql-head">
+          <div class="t"><span class="ok" id="sqlDot" style="visibility:hidden">✓</span> Generated SQL</div>
+          <button id="copySql" style="visibility:hidden">⧉ Copy</button>
+        </div>
+        <div class="sql-body placeholder" id="sqlOut">Your generated SQL will appear here.</div>
+        <div class="sql-foot" id="sqlFoot" style="display:none">
+          <span id="metaDialect"></span>
+          <span id="metaTables"></span>
+          <span id="metaTime" style="margin-left:auto"></span>
+        </div>
+      </section>
+    </div>
+  </main>
 </div>
 
 <script>
 const $ = (id) => document.getElementById(id);
-const DEFAULT_PORTS = { postgres: '5432', mysql: '3306', sqlserver: '1433' };
-let allTables = [];          // [{name, columns:[{name,type}]}]
-const selected = new Set();  // table names sent as generation context
+const PORTS = { postgres:'5432', mysql:'3306', sqlserver:'1433' };
+const DIALECTS = { postgres:'postgres', mysql:'mysql', sqlserver:'sql_server' };
+const LABELS = { postgres:'PostgreSQL', mysql:'MySQL', sqlserver:'SQL Server' };
+let allTables = [];
+const selected = new Set();
 
-// ---- auth ----
+function esc(t) { const d = document.createElement('div'); d.textContent = t == null ? '' : t; return d.innerHTML; }
+function msg(el, cls, html) { el.className = 'msg' + (cls ? ' ' + cls : ''); el.innerHTML = html || ''; }
+
+// ---- account ----
 async function refreshAuth() {
   try {
     const d = await (await fetch('/api/auth/status')).json();
     $('signinBox').style.display = d.authenticated ? 'none' : 'block';
-    $('account').style.display = d.authenticated ? 'flex' : 'none';
+    $('account').style.display = d.authenticated ? 'block' : 'none';
     if (d.authenticated) {
       $('accEmail').textContent = d.email || 'Signed in';
+      $('accEmail').title = d.email || '';
       $('accPlan').textContent = d.plan ? d.plan + ' plan' : '';
+      $('accInitial').textContent = (d.email || '?').charAt(0).toUpperCase();
     }
     return d.authenticated;
   } catch (e) { return false; }
 }
-
 $('signin').addEventListener('click', async () => {
-  fetch('/api/track', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{"event":"connector_signin_clicked"}' }).catch(() => {});
+  fetch('/api/track', { method:'POST', headers:{'Content-Type':'application/json'}, body:'{"event":"connector_signin_clicked"}' }).catch(()=>{});
   const d = await (await fetch('/api/auth/start')).json();
   window.open(d.url, '_blank');
-  // The browser tab finishes the sign-in; poll until it lands.
   const t = setInterval(async () => { if (await refreshAuth()) clearInterval(t); }, 1500);
 });
-
 $('signout').addEventListener('click', async () => {
-  await fetch('/api/auth/logout', { method: 'POST' });
+  await fetch('/api/auth/logout', { method:'POST' });
   refreshAuth();
 });
 
 // ---- schema ----
-$('driver').addEventListener('change', () => {
-  const t = $('target').value.trim();
-  const host = t.includes(':') ? t.split(':')[0] : (t || 'localhost');
-  $('target').value = host + ':' + DEFAULT_PORTS[$('driver').value];
-});
+$('driver').addEventListener('change', () => { $('port').value = PORTS[$('driver').value]; });
 
 $('inspect').addEventListener('click', async () => {
-  const [host, port] = $('target').value.trim().split(':');
   $('inspect').disabled = true;
   $('inspect').innerHTML = '<span class="spin"></span>Reading schema…';
+  msg($('connMsg'), '');
   try {
     const r = await fetch('/api/db/inspect', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({
-        driver: $('driver').value, host, port,
-        user: $('dbUser').value.trim(), password: $('dbPass').value,
-        database: $('dbName').value.trim()
+        driver: $('driver').value, host: $('host').value.trim(), port: $('port').value.trim(),
+        user: $('dbUser').value.trim(), password: $('dbPass').value, database: $('dbName').value.trim()
       })
     });
     const d = await r.json();
-    $('picker').style.display = 'block';
-    const err = $('tableError');
-    if (!d.ok) {
-      err.style.display = 'block';
-      err.style.borderColor = 'rgba(224,82,82,.5)';
-      err.textContent = d.error;
-      allTables = []; selected.clear(); renderPicker();
-      return;
-    }
-    err.style.display = 'none';
+    if (!d.ok) { allTables = []; selected.clear(); renderTables(); msg($('connMsg'), 'err', esc(d.error)); return; }
     allTables = d.tables || [];
     selected.clear();
-    allTables.forEach(t => selected.add(t.name)); // everything on by default
-    renderPicker();
+    allTables.forEach(t => selected.add(t.name));
+    renderTables();
   } catch (e) {
-    $('picker').style.display = 'block';
-    $('tableError').style.display = 'block';
-    $('tableError').textContent = e.message;
+    msg($('connMsg'), 'err', esc(e.message));
   } finally {
     $('inspect').disabled = false;
-    $('inspect').textContent = 'Load tables';
+    $('inspect').textContent = '⟳ Load schema';
   }
 });
 
-// ---- table picker ----
-function renderPicker() {
-  const q = $('tableSearch').value.trim().toLowerCase();
-  const shown = allTables.filter(t => !q || t.name.toLowerCase().includes(q));
-  $('tableList').innerHTML = shown.map(t =>
-    '<label class="picker-item"><input type="checkbox" data-t="' + esc(t.name) + '"' +
-    (selected.has(t.name) ? ' checked' : '') + '>' +
-    '<span class="meta"><b>' + esc(t.name) + '</b><span class="cols">' +
-    t.columns.map(c => esc(c.name) + ' <span class="t">' + esc(c.type) + '</span>').join(' · ') +
-    '</span></span></label>'
-  ).join('') || '<div class="tbl">No tables match.</div>';
-
-  const n = selected.size, total = allTables.length;
-  $('pickerLabel').textContent = total === 0 ? 'No tables found'
-    : n === 0 ? 'No tables selected — pick at least one'
-    : n === total ? 'All ' + total + ' tables selected'
-    : n + ' of ' + total + ' tables selected';
+function renderTables() {
+  const box = $('chips');
+  if (!allTables.length) {
+    box.innerHTML = '<span class="empty">No tables yet.</span>';
+    $('tblCount').textContent = 'Load your schema first';
+    $('dbStatus').classList.remove('on');
+    $('dbStatusText').textContent = 'No schema loaded';
+  } else {
+    box.innerHTML = allTables.map(t =>
+      '<span class="chip' + (selected.has(t.name) ? ' on' : '') + '" data-t="' + esc(t.name) + '" title="' +
+      esc(t.columns.map(c => c.name + ' ' + c.type).join(', ')) + '">' +
+      esc(t.name) + '<span class="n">' + t.columns.length + '</span></span>'
+    ).join('');
+    $('tblCount').textContent = selected.size + ' of ' + allTables.length + ' selected';
+    $('dbStatus').classList.add('on');
+    $('dbStatusText').textContent = LABELS[$('driver').value] + ' · ' + allTables.length + ' tables';
+  }
+  $('ctxHint').textContent = !allTables.length ? 'No tables selected'
+    : selected.size === 0 ? 'Select at least one table'
+    : selected.size + (selected.size === 1 ? ' table' : ' tables') + ' as context';
 }
 
-$('pickerToggle').addEventListener('click', () => $('picker').classList.toggle('open'));
-$('tableSearch').addEventListener('input', renderPicker);
-$('tableList').addEventListener('change', (e) => {
-  const cb = e.target.closest('input[data-t]');
-  if (!cb) return;
-  cb.checked ? selected.add(cb.dataset.t) : selected.delete(cb.dataset.t);
-  renderPicker();
+$('chips').addEventListener('click', (e) => {
+  const c = e.target.closest('.chip');
+  if (!c) return;
+  const n = c.dataset.t;
+  selected.has(n) ? selected.delete(n) : selected.add(n);
+  renderTables();
 });
-document.querySelectorAll('.picker-actions button').forEach(b => b.addEventListener('click', () => {
+document.querySelectorAll('.tblbar button').forEach(b => b.addEventListener('click', () => {
   selected.clear();
   if (b.dataset.all === '1') allTables.forEach(t => selected.add(t.name));
-  renderPicker();
+  renderTables();
 }));
-// Click-away closes the menu, as any dropdown should.
-document.addEventListener('click', (e) => {
-  if (!$('picker').contains(e.target)) $('picker').classList.remove('open');
-});
 
-// Only the selected tables become generation context — a focused schema
-// gives the model less room to invent joins across unrelated tables.
+// Only the selected tables become context — a focused schema leaves the model
+// less room to invent joins across unrelated tables.
 function schemaOfSelection() {
   return allTables.filter(t => selected.has(t.name))
     .map(t => t.name + ':' + t.columns.map(c => c.name + '(' + c.type + ')').join(','))
@@ -273,63 +320,78 @@ function schemaOfSelection() {
 }
 
 // ---- generate ----
+$('newQuery').addEventListener('click', () => {
+  $('prompt').value = '';
+  $('sqlOut').className = 'sql-body placeholder';
+  $('sqlOut').textContent = 'Your generated SQL will appear here.';
+  $('sqlFoot').style.display = 'none';
+  $('copySql').style.visibility = 'hidden';
+  $('sqlDot').style.visibility = 'hidden';
+  msg($('genMsg'), '');
+  $('prompt').focus();
+});
+
 $('gen').addEventListener('click', async () => {
   const prompt = $('prompt').value.trim();
   if (!prompt) return;
-  if (!(await refreshAuth())) {
-    $('quota').style.display = 'block';
-    $('quota').textContent = 'Sign in with your AI2SQL account first — the button is at the top.';
-    return;
-  }
-  if (allTables.length && selected.size === 0) {
-    $('quota').style.display = 'block';
-    $('quota').textContent = 'Select at least one table above, or the query has nothing to work with.';
-    return;
-  }
-  $('quota').style.display = 'none';
+  if (!(await refreshAuth())) return msg($('genMsg'), 'warn', 'Sign in with your AI2SQL account first — the button is in the sidebar.');
+  if (allTables.length && selected.size === 0) return msg($('genMsg'), 'warn', 'Select at least one table, or the query has nothing to work with.');
+
+  msg($('genMsg'), '');
   $('gen').disabled = true;
   $('gen').innerHTML = '<span class="spin"></span>Generating…';
-  const out = $('sqlOut');
+  const started = performance.now();
+  const usedTables = selected.size;
   try {
-    const dialects = { postgres: 'postgres', mysql: 'mysql', sqlserver: 'sql_server' };
     const r = await fetch('/api/generate', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ prompt, dialect: dialects[$('driver').value], schema: schemaOfSelection() })
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ prompt, dialect: DIALECTS[$('driver').value], schema: schemaOfSelection() })
     });
     const d = await r.json();
-    if (!d.ok && d.quota) {
-      $('quota').style.display = 'block';
-      $('quota').innerHTML = esc(d.error) + ' <a href="https://ai2sql.io/dashboard/choose-plan" target="_blank">Upgrade</a>';
+    if (!d.ok) {
+      if (d.quota) msg($('genMsg'), 'warn', esc(d.error) + ' <a href="https://ai2sql.io/dashboard/choose-plan" target="_blank">Upgrade</a>');
+      else if (d.error === 'not_authenticated') { refreshAuth(); msg($('genMsg'), 'warn', esc(d.detail || 'Please sign in again.')); }
+      else msg($('genMsg'), 'err', esc(d.error || 'Generation failed.'));
       return;
     }
-    if (!d.ok && d.error === 'not_authenticated') {
-      refreshAuth();
-      $('quota').style.display = 'block';
-      $('quota').textContent = d.detail || 'Please sign in again.';
-      return;
-    }
-    out.style.display = 'block';
-    out.textContent = d.ok ? d.sql : 'Error: ' + (d.error || 'generation failed');
-    $('copySql').style.display = d.ok ? 'inline-block' : 'none';
+    const secs = ((performance.now() - started) / 1000).toFixed(1);
+    $('sqlOut').className = 'sql-body';
+    $('sqlOut').innerHTML = highlight(d.sql);
+    $('metaDialect').innerHTML = '<b>' + esc(LABELS[$('driver').value]) + '</b>';
+    $('metaTables').textContent = usedTables + (usedTables === 1 ? ' table' : ' tables');
+    $('metaTime').innerHTML = '<b>' + secs + 's</b>';
+    $('sqlFoot').style.display = 'flex';
+    $('copySql').style.visibility = 'visible';
+    $('sqlDot').style.visibility = 'visible';
   } catch (e) {
-    out.style.display = 'block';
-    out.textContent = 'Error: ' + e.message;
+    msg($('genMsg'), 'err', esc(e.message));
   } finally {
     $('gen').disabled = false;
-    $('gen').textContent = 'Generate SQL';
+    $('gen').innerHTML = '✦ Generate SQL';
   }
 });
+
+// Keyword-only highlighting: enough to read at a glance, and it cannot
+// mangle the SQL because the text is escaped first.
+function highlight(sql) {
+  const KW = /\b(SELECT|FROM|WHERE|JOIN|LEFT|RIGHT|INNER|OUTER|FULL|CROSS|ON|GROUP|ORDER|BY|HAVING|LIMIT|OFFSET|AS|AND|OR|NOT|IN|IS|NULL|WITH|UNION|ALL|DISTINCT|CASE|WHEN|THEN|ELSE|END|COUNT|SUM|AVG|MIN|MAX|COALESCE|DESC|ASC|INTERVAL|CURRENT_DATE|NOW)\b/g;
+  return esc(sql).replace(KW, '<span class="kw">$&</span>');
+}
 
 $('copySql').addEventListener('click', function () {
   navigator.clipboard.writeText($('sqlOut').textContent);
-  fetch('/api/track', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{"event":"connector_sql_copied"}' }).catch(() => {});
-  this.textContent = 'Copied!';
-  setTimeout(() => { this.textContent = 'Copy SQL'; }, 1800);
+  fetch('/api/track', { method:'POST', headers:{'Content-Type':'application/json'}, body:'{"event":"connector_sql_copied"}' }).catch(()=>{});
+  this.innerHTML = '✓ Copied';
+  setTimeout(() => { this.innerHTML = '⧉ Copy'; }, 1800);
 });
 
-function esc(t) { const d = document.createElement('div'); d.textContent = t || ''; return d.innerHTML; }
+// Cmd/Ctrl+Enter generates, the shortcut anyone typing in a box expects.
+$('prompt').addEventListener('keydown', (e) => {
+  if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') $('gen').click();
+});
 
 refreshAuth();
+renderTables();
 </script>
 </body>
 </html>
