@@ -135,6 +135,7 @@ async function refreshAuth() {
 }
 
 $('signin').addEventListener('click', async () => {
+  fetch('/api/track', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{"event":"connector_signin_clicked"}' }).catch(() => {});
   const d = await (await fetch('/api/auth/start')).json();
   window.open(d.url, '_blank');
   // The browser tab finishes the sign-in; poll until it lands.
@@ -234,6 +235,7 @@ $('gen').addEventListener('click', async () => {
 
 $('copySql').addEventListener('click', function () {
   navigator.clipboard.writeText($('sqlOut').textContent);
+  fetch('/api/track', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{"event":"connector_sql_copied"}' }).catch(() => {});
   this.textContent = 'Copied!';
   setTimeout(() => { this.textContent = 'Copy SQL'; }, 1800);
 });

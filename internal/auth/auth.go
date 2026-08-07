@@ -14,6 +14,11 @@ type Credentials struct {
 	Key   string `json:"key"`
 	Email string `json:"email"`
 	Plan  string `json:"plan"`
+	// UserID is the AI2SQL numeric user id — the identity analytics keys on.
+	UserID string `json:"user_id,omitempty"`
+	// InstallID survives sign-outs so one machine stays one install in
+	// analytics regardless of account churn.
+	InstallID string `json:"install_id,omitempty"`
 }
 
 type Store struct {
@@ -54,12 +59,16 @@ func (s *Store) Set(c Credentials) {
 	}
 }
 
+// Clear drops the sign-in but keeps the install id on disk.
 func (s *Store) Clear() {
 	s.mu.Lock()
-	s.creds = Credentials{}
+	install := s.creds.InstallID
+	s.creds = Credentials{InstallID: install}
 	path := s.path
+	creds := s.creds
 	s.mu.Unlock()
 	if path != "" {
-		_ = os.Remove(path)
+		b, _ := json.Marshal(creds)
+		_ = os.WriteFile(path, b, 0o600)
 	}
 }

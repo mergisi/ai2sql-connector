@@ -31,6 +31,7 @@ import (
 
 	"github.com/coder/websocket"
 
+	"github.com/mergisi/ai2sql-connector/internal/analytics"
 	"github.com/mergisi/ai2sql-connector/internal/auth"
 	"github.com/mergisi/ai2sql-connector/internal/dbinspect"
 	"github.com/mergisi/ai2sql-connector/internal/tunnel"
@@ -88,6 +89,18 @@ func main() {
 
 	creds := auth.NewStore()
 	st := &state{state: "idle"}
+
+	// Analytics identity: reuse the persisted install id (minting one on
+	// first run), and bind the user id when a sign-in is present.
+	track := analytics.New(creds.Get().InstallID, version)
+	if c := creds.Get(); c.InstallID == "" {
+		c.InstallID = track.InstallID()
+		creds.Set(c)
+	}
+	if c := creds.Get(); c.UserID != "" {
+		track.SetUser(c.UserID)
+	}
+	track.Track("connector_app_started", map[string]any{"signed_in": creds.Get().Key != ""})
 
 	if *noUI {
 		if *code == "" || *target == "" {
@@ -163,7 +176,7 @@ func main() {
 (function(){
   var p = new URLSearchParams(location.hash.slice(1));
   fetch('/api/auth', {method:'POST', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({key:p.get('key')||'', email:p.get('email')||'', plan:p.get('plan')||''})})
+    body: JSON.stringify({key:p.get('key')||'', email:p.get('email')||'', plan:p.get('plan')||'', user_id:p.get('user_id')||''})})
     .then(function(r){return r.json()})
     .then(function(d){
       document.getElementById('m').innerHTML = d.ok
@@ -180,7 +193,12 @@ func main() {
 			writeJSON(w, map[string]any{"ok": false, "error": "invalid key"})
 			return
 		}
+		c.InstallID = creds.Get().InstallID // never let a sign-in reset the install identity
 		creds.Set(c)
+		if c.UserID != "" {
+			track.SetUser(c.UserID)
+		}
+		track.Track("connector_signin_completed", map[string]any{"plan": c.Plan})
 		log.Printf("signed in as %s (%s plan)", c.Email, c.Plan)
 		writeJSON(w, map[string]any{"ok": true})
 	})
@@ -189,7 +207,19 @@ func main() {
 		writeJSON(w, map[string]any{"authenticated": c.Key != "" || apiKey != "", "email": c.Email, "plan": c.Plan})
 	})
 	mux.HandleFunc("POST /api/auth/logout", func(w http.ResponseWriter, _ *http.Request) {
+		track.Track("connector_signed_out", nil)
 		creds.Clear()
+		writeJSON(w, map[string]any{"ok": true})
+	})
+
+	// UI-side events (button clicks the Go side cannot see). Allowlisted so
+	// the local page cannot mint arbitrary event names into the project.
+	uiEvents := map[string]bool{"connector_sql_copied": true, "connector_signin_clicked": true}
+	mux.HandleFunc("POST /api/track", func(w http.ResponseWriter, r *http.Request) {
+		var req struct{ Event string `json:"event"` }
+		if err := json.NewDecoder(r.Body).Decode(&req); err == nil && uiEvents[req.Event] {
+			track.Track(req.Event, nil)
+		}
 		writeJSON(w, map[string]any{"ok": true})
 	})
 
@@ -204,9 +234,11 @@ func main() {
 		}
 		tables, err := dbinspect.Inspect(r.Context(), cfg)
 		if err != nil {
+			track.Track("connector_schema_load_failed", map[string]any{"driver": cfg.Driver})
 			writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
 			return
 		}
+		track.Track("connector_schema_loaded", map[string]any{"driver": cfg.Driver, "tables": len(tables)})
 		writeJSON(w, map[string]any{"ok": true, "tables": tables, "schema": dbinspect.SchemaString(tables)})
 	})
 
@@ -256,16 +288,19 @@ func main() {
 			// limit, and the upgrade link.
 			var q struct{ Message string `json:"message"` }
 			_ = json.Unmarshal(raw, &q)
+			track.Track("connector_generate_failed", map[string]any{"reason": "quota", "dialect": req.Dialect})
 			writeJSON(w, map[string]any{"ok": false, "error": q.Message, "quota": true})
 			return
 		}
 		if res.StatusCode == http.StatusUnauthorized {
 			creds.Clear() // the key was revoked server-side; force a fresh sign-in
+			track.Track("connector_generate_failed", map[string]any{"reason": "auth", "dialect": req.Dialect})
 			writeJSON(w, map[string]any{"ok": false, "error": "not_authenticated",
 				"detail": "Your sign-in is no longer valid. Sign in again."})
 			return
 		}
 		if res.StatusCode != http.StatusOK {
+			track.Track("connector_generate_failed", map[string]any{"reason": "api_" + fmt.Sprint(res.StatusCode), "dialect": req.Dialect})
 			writeJSON(w, map[string]any{"ok": false, "error": fmt.Sprintf("API error (%d): %s", res.StatusCode, truncate(string(raw), 300))})
 			return
 		}
@@ -282,6 +317,7 @@ func main() {
 			writeJSON(w, map[string]any{"ok": false, "error": "API returned no SQL: " + truncate(string(raw), 300)})
 			return
 		}
+		track.Track("connector_sql_generated", map[string]any{"dialect": req.Dialect, "has_schema": req.Schema != ""})
 		writeJSON(w, map[string]any{"ok": true, "sql": sqlText})
 	})
 
