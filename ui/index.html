@@ -97,6 +97,25 @@
   .sql-body.placeholder { color:var(--dim); font-family:inherit; font-size:13px; display:flex; align-items:center; justify-content:center; text-align:center; padding:30px; }
   .sql-foot { display:flex; gap:18px; padding:11px 16px; border-top:1px solid var(--border); background:var(--panel2); font-size:11.5px; color:var(--muted); }
   .sql-foot b { color:var(--text); font-weight:600; }
+  .acts { display:flex; gap:6px; align-items:center; }
+  .sql-head button.run { background:rgba(124,92,255,.16); border:1px solid var(--accent); color:var(--text);
+                         padding:5px 12px; border-radius:7px; font-weight:600; }
+  .sql-head button.run:hover { background:rgba(124,92,255,.28); }
+  .sql-head button.run:disabled { opacity:.6; cursor:default; }
+  .resmeta { font-size:11.5px; color:var(--muted); font-family:ui-monospace,monospace; }
+  .res-body { flex:1; overflow:auto; max-height:420px; }
+  table.res { width:100%; border-collapse:collapse; font-size:12.5px; font-family:ui-monospace,monospace; }
+  table.res th { position:sticky; top:0; background:var(--panel2); text-align:left; padding:9px 12px;
+                 border-bottom:1px solid var(--border); color:var(--muted); font-weight:600; white-space:nowrap; }
+  table.res td { padding:8px 12px; border-bottom:1px solid #1e1e2c; white-space:nowrap; max-width:280px;
+                 overflow:hidden; text-overflow:ellipsis; }
+  table.res tr:hover td { background:#15151f; }
+  td.num { text-align:right; }
+  td.null { color:var(--dim); font-style:italic; }
+  .res-note { padding:14px 16px; font-size:13px; color:var(--muted); }
+  .res-note.err { color:#f0a0a0; }
+  .res-note.blocked { color:var(--warn); }
+  .res-note b { display:block; color:var(--text); margin-bottom:4px; }
 
   .msg { display:none; margin-top:12px; padding:11px 13px; border-radius:9px; font-size:12.5px; }
   .msg.err { display:block; background:rgba(224,82,82,.09); border:1px solid rgba(224,82,82,.35); color:#f0a0a0; }
@@ -198,7 +217,10 @@
         <section class="card sqlcard" style="margin-top:16px">
           <div class="sql-head">
             <div class="t"><span class="ok" id="sqlDot" style="visibility:hidden">✓</span> Generated SQL</div>
-            <button id="copySql" style="visibility:hidden">⧉ Copy</button>
+            <div class="acts">
+              <button id="copySql" style="display:none">⧉ Copy</button>
+              <button id="runSql" class="run" style="display:none">▶ Run Query</button>
+            </div>
           </div>
           <div class="sql-body placeholder" id="sqlOut">Your generated SQL will appear here.</div>
           <div class="sql-foot" id="sqlFoot" style="display:none">
@@ -206,6 +228,15 @@
             <span id="metaTables"></span>
             <span id="metaTime" style="margin-left:auto"></span>
           </div>
+        </section>
+
+        <!-- results of running that SQL against the local database -->
+        <section class="card sqlcard" id="resultCard" style="margin-top:16px; display:none">
+          <div class="sql-head">
+            <div class="t"><span id="resDot" class="ok">✓</span> Query results</div>
+            <span class="resmeta" id="resMeta"></span>
+          </div>
+          <div id="resBody" class="res-body"></div>
         </section>
       </div>
     </div>
@@ -324,7 +355,7 @@ function schemaOfSelection() {
 // ---- generate ----
 $('newQuery').addEventListener('click', () => {
   $('prompt').value = '';
-  $('sqlOut').className = 'sql-body placeholder';
+  $('sqlOut').className = 'sql-body placeholder'; hideResults(); $('runSql').style.display='none'; $('copySql').style.display='none';
   $('sqlOut').textContent = 'Your generated SQL will appear here.';
   $('sqlFoot').style.display = 'none';
   $('copySql').style.visibility = 'hidden';
@@ -363,8 +394,10 @@ $('gen').addEventListener('click', async () => {
     $('metaTables').textContent = usedTables + (usedTables === 1 ? ' table' : ' tables');
     $('metaTime').innerHTML = '<b>' + secs + 's</b>';
     $('sqlFoot').style.display = 'flex';
-    $('copySql').style.visibility = 'visible';
+    $('copySql').style.display = 'flex';
+    $('runSql').style.display = 'block';
     $('sqlDot').style.visibility = 'visible';
+    hideResults();
   } catch (e) {
     msg($('genMsg'), 'err', esc(e.message));
   } finally {
@@ -378,6 +411,76 @@ $('gen').addEventListener('click', async () => {
 function highlight(sql) {
   const KW = /\b(SELECT|FROM|WHERE|JOIN|LEFT|RIGHT|INNER|OUTER|FULL|CROSS|ON|GROUP|ORDER|BY|HAVING|LIMIT|OFFSET|AS|AND|OR|NOT|IN|IS|NULL|WITH|UNION|ALL|DISTINCT|CASE|WHEN|THEN|ELSE|END|COUNT|SUM|AVG|MIN|MAX|COALESCE|DESC|ASC|INTERVAL|CURRENT_DATE|NOW)\b/g;
   return esc(sql).replace(KW, '<span class="kw">$&</span>');
+}
+
+// ---- run the query locally ----
+function hideResults() {
+  $('resultCard').style.display = 'none';
+  $('resBody').innerHTML = '';
+  $('resMeta').textContent = '';
+}
+function showNote(cls, title, text) {
+  $('resultCard').style.display = 'flex';
+  $('resDot').textContent = cls === 'err' ? '✕' : cls === 'blocked' ? '⚠' : '✓';
+  $('resDot').style.color = cls === 'err' ? 'var(--err)' : cls === 'blocked' ? 'var(--warn)' : 'var(--ok)';
+  $('resBody').innerHTML = '<div class="res-note ' + cls + '">' +
+    (title ? '<b>' + esc(title) + '</b>' : '') + esc(text) + '</div>';
+}
+
+$('runSql').addEventListener('click', async () => {
+  const sql = $('sqlOut').textContent;
+  if (!sql.trim()) return;
+  fetch('/api/track', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: '{"event":"connector_query_run_clicked"}' }).catch(() => {});
+
+  $('runSql').disabled = true;
+  $('runSql').innerHTML = '<span class="spin"></span>Running…';
+  $('resMeta').textContent = '';
+  try {
+    const r = await fetch('/api/db/query', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        driver: $('driver').value, host: $('host').value.trim(), port: $('port').value.trim(),
+        user: $('dbUser').value.trim(), password: $('dbPass').value,
+        database: $('dbName').value.trim(), sql: sql
+      })
+    });
+    const d = await r.json();
+    if (!d.ok) {
+      if (d.blocked) showNote('blocked', 'This query was not run', d.error);
+      else showNote('err', "Query couldn't be executed", d.error || 'Unknown error.');
+      return;
+    }
+    renderResult(d.result);
+  } catch (e) {
+    showNote('err', "Query couldn't be executed", e.message);
+  } finally {
+    $('runSql').disabled = false;
+    $('runSql').innerHTML = '▶ Run Query';
+  }
+});
+
+function renderResult(res) {
+  $('resultCard').style.display = 'flex';
+  $('resDot').textContent = '✓';
+  $('resDot').style.color = 'var(--ok)';
+  $('resMeta').textContent = res.row_count + (res.row_count === 1 ? ' row' : ' rows') +
+    ' · ' + res.elapsed_ms + ' ms' + (res.truncated ? ' · truncated' : '');
+
+  if (!res.row_count) {
+    $('resBody').innerHTML = '<div class="res-note">Query executed successfully. No rows returned.</div>';
+    return;
+  }
+  // Right-align numbers and mark NULL, so a result reads like a result rather
+  // than a wall of strings.
+  const head = '<tr>' + res.columns.map(c => '<th>' + esc(c) + '</th>').join('') + '</tr>';
+  const body = res.rows.map(r => '<tr>' + r.map(v => {
+    if (v === null || v === undefined) return '<td class="null">NULL</td>';
+    const num = typeof v === 'number';
+    return '<td' + (num ? ' class="num"' : '') + ' title="' + esc(String(v)) + '">' + esc(String(v)) + '</td>';
+  }).join('') + '</tr>').join('');
+  $('resBody').innerHTML = '<table class="res"><thead>' + head + '</thead><tbody>' + body + '</tbody></table>' +
+    (res.truncated ? '<div class="res-note">Showing the first ' + res.row_count + ' rows.</div>' : '');
 }
 
 $('copySql').addEventListener('click', function () {

@@ -99,6 +99,14 @@ func SchemaString(tables []Table) string {
 	return strings.Join(parts, ";")
 }
 
+// Plan exposes the driver name and DSN for a config so the query executor can
+// open a connection the same way introspection does, without duplicating the
+// per-dialect DSN rules.
+func Plan(c Config) (driverName, dsn string, err error) {
+	d, s, _, e := plan(c)
+	return d, s, e
+}
+
 func plan(c Config) (driverName, dsn, query string, err error) {
 	host := strings.TrimSpace(c.Host)
 	if host == "" {

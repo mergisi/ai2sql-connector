@@ -33,6 +33,7 @@ import (
 
 	"github.com/mergisi/ai2sql-connector/internal/analytics"
 	"github.com/mergisi/ai2sql-connector/internal/auth"
+	"github.com/mergisi/ai2sql-connector/internal/dbexec"
 	"github.com/mergisi/ai2sql-connector/internal/dbinspect"
 	"github.com/mergisi/ai2sql-connector/internal/tunnel"
 	"github.com/mergisi/ai2sql-connector/ui"
@@ -249,9 +250,11 @@ func main() {
 
 	// UI-side events (button clicks the Go side cannot see). Allowlisted so
 	// the local page cannot mint arbitrary event names into the project.
-	uiEvents := map[string]bool{"connector_sql_copied": true, "connector_signin_clicked": true}
+	uiEvents := map[string]bool{"connector_sql_copied": true, "connector_signin_clicked": true, "connector_query_run_clicked": true}
 	mux.HandleFunc("POST /api/track", func(w http.ResponseWriter, r *http.Request) {
-		var req struct{ Event string `json:"event"` }
+		var req struct {
+			Event string `json:"event"`
+		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err == nil && uiEvents[req.Event] {
 			track.Track(req.Event, nil)
 		}
@@ -275,6 +278,40 @@ func main() {
 		}
 		track.Track("connector_schema_loaded", map[string]any{"driver": cfg.Driver, "tables": len(tables)})
 		writeJSON(w, map[string]any{"ok": true, "tables": tables, "schema": dbinspect.SchemaString(tables)})
+	})
+
+	// Runs the generated SQL against the user's local database, read-only.
+	// Rows are read here and returned to the local UI — they never go to
+	// AI2SQL, which is what keeps the promise the page makes.
+	mux.HandleFunc("POST /api/db/query", func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			dbinspect.Config
+			SQL string `json:"sql"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeJSON(w, map[string]any{"ok": false, "error": "bad request"})
+			return
+		}
+		res, err := dbexec.Execute(r.Context(), req.Config, req.SQL)
+		if err != nil {
+			var blocked *dbexec.ErrBlocked
+			if errors.As(err, &blocked) {
+				track.Track("connector_query_failed", map[string]any{
+					"driver": req.Driver, "failure_reason": "blocked", "query_mode": "read_only"})
+				writeJSON(w, map[string]any{"ok": false, "blocked": true, "error": blocked.Reason})
+				return
+			}
+			track.Track("connector_query_failed", map[string]any{
+				"driver": req.Driver, "failure_reason": "db_error", "query_mode": "read_only"})
+			writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
+			return
+		}
+		// Counts and timings only — never the SQL, the column names or a row.
+		track.Track("connector_query_succeeded", map[string]any{
+			"driver": req.Driver, "row_count": res.RowCount,
+			"execution_time_ms": res.ElapsedMs, "was_truncated": res.Truncated,
+			"query_mode": "read_only"})
+		writeJSON(w, map[string]any{"ok": true, "result": res})
 	})
 
 	// Proxies one generation call to the AI2SQL API with the local schema as
@@ -321,7 +358,9 @@ func main() {
 		if res.StatusCode == http.StatusTooManyRequests {
 			// Surface the plan-quota message as-is: it names the plan, the
 			// limit, and the upgrade link.
-			var q struct{ Message string `json:"message"` }
+			var q struct {
+				Message string `json:"message"`
+			}
 			_ = json.Unmarshal(raw, &q)
 			track.Track("connector_generate_failed", map[string]any{"reason": "quota", "dialect": req.Dialect})
 			writeJSON(w, map[string]any{"ok": false, "error": q.Message, "quota": true})
