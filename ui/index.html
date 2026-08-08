@@ -97,6 +97,21 @@
   .sql-body.placeholder { color:var(--dim); font-family:inherit; font-size:13px; display:flex; align-items:center; justify-content:center; text-align:center; padding:30px; }
   .sql-foot { display:flex; gap:18px; padding:11px 16px; border-top:1px solid var(--border); background:var(--panel2); font-size:11.5px; color:var(--muted); }
   .sql-foot b { color:var(--text); font-weight:600; }
+  /* Update notice: informational for a new version, warning when this build is
+     older than AI2SQL still supports. Never blocks the app. */
+  .updbar { display:none; align-items:center; gap:12px; margin-bottom:16px; padding:11px 15px;
+            border-radius:11px; font-size:13px; }
+  .updbar.show { display:flex; }
+  .updbar.info { background:rgba(124,92,255,.1); border:1px solid rgba(124,92,255,.4); color:var(--text); }
+  .updbar.warn { background:rgba(232,201,106,.09); border:1px solid rgba(232,201,106,.4); color:var(--warn); }
+  .updbar .grow { flex:1; min-width:0; }
+  .updbar b { display:block; }
+  .updbar span { color:var(--muted); font-size:12px; }
+  .updbar.warn span { color:#c9ab55; }
+  .updbar a { flex:0 0 auto; text-decoration:none; padding:7px 14px; border-radius:8px; font-weight:600;
+              font-size:12.5px; background:var(--accent); color:#fff; }
+  .updbar .x { flex:0 0 auto; background:none; border:0; color:var(--muted); cursor:pointer; font-size:15px; padding:0 4px; }
+
   .acts { display:flex; gap:6px; align-items:center; }
   .sql-head button.run { background:rgba(124,92,255,.16); border:1px solid var(--accent); color:var(--text);
                          padding:5px 12px; border-radius:7px; font-weight:600; }
@@ -162,6 +177,7 @@
   </aside>
 
   <main class="main">
+    <div id="updateBar" class="updbar"></div>
     <div class="cols">
       <!-- connection -->
       <div>
@@ -494,6 +510,44 @@ $('copySql').addEventListener('click', function () {
 $('prompt').addEventListener('keydown', (e) => {
   if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') $('gen').click();
 });
+
+// ---- update notice ----
+// Shown once per version: dismissing 0.2.0 should not hide 0.3.0 later. An
+// unsupported build cannot be dismissed, because ignoring it means the app
+// may simply stop working.
+(async function checkUpdate() {
+  try {
+    const d = await (await fetch('/api/update/status')).json();
+    if (!d.checked || (!d.outdated && !d.unsupported)) return;
+    if (!d.unsupported && localStorage.getItem('dismissed_update') === d.latest) return;
+
+    const bar = $('updateBar');
+    bar.className = 'updbar show ' + (d.unsupported ? 'warn' : 'info');
+    bar.innerHTML =
+      '<div class="grow"><b>' +
+      (d.unsupported
+        ? 'This version is no longer supported'
+        : 'AI2SQL Connector ' + esc(d.latest) + ' is available') +
+      '</b><span>' +
+      (d.unsupported
+        ? 'You have ' + esc(d.current) + '. Update to keep it working.'
+        : 'You have ' + esc(d.current) + '.' + (d.notes ? ' ' + esc(d.notes) : '')) +
+      '</span></div>' +
+      '<a href="' + esc(d.download_url || 'https://ai2sql.io/connector') + '" target="_blank">Download</a>' +
+      (d.unsupported ? '' : '<button class="x" title="Dismiss">✕</button>');
+
+    const a = bar.querySelector('a');
+    if (a) a.addEventListener('click', () => {
+      fetch('/api/track', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: '{"event":"connector_update_clicked"}' }).catch(() => {});
+    });
+    const x = bar.querySelector('.x');
+    if (x) x.addEventListener('click', () => {
+      localStorage.setItem('dismissed_update', d.latest);
+      bar.className = 'updbar';
+    });
+  } catch (e) { /* offline: say nothing */ }
+})();
 
 refreshAuth();
 renderTables();

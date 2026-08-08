@@ -36,6 +36,7 @@ import (
 	"github.com/mergisi/ai2sql-connector/internal/dbexec"
 	"github.com/mergisi/ai2sql-connector/internal/dbinspect"
 	"github.com/mergisi/ai2sql-connector/internal/tunnel"
+	"github.com/mergisi/ai2sql-connector/internal/update"
 	"github.com/mergisi/ai2sql-connector/ui"
 )
 
@@ -102,6 +103,23 @@ func main() {
 		track.SetUser(c.UserID)
 	}
 	track.Track("connector_app_started", map[string]any{"signed_in": creds.Get().Key != ""})
+
+	// Ask AI2SQL what version people should be on. Runs in the background so a
+	// slow or unreachable API never delays the window opening.
+	updates := update.New(version, *builderURL)
+	go func() {
+		updates.Check(context.Background())
+		s := updates.Status()
+		if s.Unsupported {
+			log.Printf("this version (%s) is no longer supported — update to %s: %s", s.Current, s.Latest, s.DownloadURL)
+		} else if s.Outdated {
+			log.Printf("a newer version is available: %s (you have %s)", s.Latest, s.Current)
+		}
+		if s.Checked && (s.Outdated || s.Unsupported) {
+			track.Track("connector_update_available", map[string]any{
+				"latest": s.Latest, "unsupported": s.Unsupported})
+		}
+	}()
 
 	// A stored sign-in is a snapshot; the account is not. Revalidate against
 	// the API on startup so a revoked key signs itself out and a plan change
@@ -191,6 +209,9 @@ func main() {
 	mux.HandleFunc("GET /api/status", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, st.snapshot())
 	})
+	mux.HandleFunc("GET /api/update/status", func(w http.ResponseWriter, _ *http.Request) {
+		writeJSON(w, updates.Status())
+	})
 
 	// --- account sign-in ------------------------------------------------
 	// "Sign in with AI2SQL" opens the browser at the web app, which is where
@@ -250,7 +271,7 @@ func main() {
 
 	// UI-side events (button clicks the Go side cannot see). Allowlisted so
 	// the local page cannot mint arbitrary event names into the project.
-	uiEvents := map[string]bool{"connector_sql_copied": true, "connector_signin_clicked": true, "connector_query_run_clicked": true}
+	uiEvents := map[string]bool{"connector_sql_copied": true, "connector_signin_clicked": true, "connector_query_run_clicked": true, "connector_update_clicked": true}
 	mux.HandleFunc("POST /api/track", func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
 			Event string `json:"event"`
