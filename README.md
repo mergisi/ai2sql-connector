@@ -63,3 +63,30 @@ GOOS=linux   GOARCH=amd64 go build -o dist/ai2sql-relay-linux-amd64          ./c
   show the code + download link, poll `/tunnel/{code}`, save `public_addr`.
 - Relay deployment target (needs a persistent host — not Vercel).
 - Multi-tunnel per user, reconnect keeping the same port, metrics.
+
+## Cutting a release
+
+Versions matter here: the desktop app reports its version to AI2SQL on
+startup, and `CONNECTOR_MIN_VERSION` is what lets a breaking API change tell
+old copies to update instead of failing at them silently. Shipping two
+different builds under one version defeats both.
+
+1. Bump `const version` in `cmd/connector/main.go`.
+2. Build and sign:
+   ```bash
+   go build -o dist/ai2sql-connector-macos-arm64 ./cmd/connector
+   GOOS=darwin  GOARCH=amd64 go build -o dist/ai2sql-connector-macos-intel      ./cmd/connector
+   GOOS=windows GOARCH=amd64 go build -o dist/ai2sql-connector-windows-amd64.exe ./cmd/connector
+   GOOS=linux   GOARCH=amd64 go build -o dist/ai2sql-connector-linux-amd64      ./cmd/connector
+   codesign --force --sign - --identifier io.ai2sql.connector dist/ai2sql-connector-macos-*
+   ```
+   Build each target on its own line. A `for` loop over `GOOS=… GOARCH=…`
+   strings silently fails and leaves the previous binaries in `dist/`, which
+   then get uploaded as if they were new.
+3. Tag and publish: `git tag -a vX.Y.Z -m "…" && git push origin vX.Y.Z`,
+   then `gh release create vX.Y.Z dist/ai2sql-connector-* --title … --notes …`
+4. Set `CONNECTOR_LATEST_VERSION` (and `CONNECTOR_MIN_VERSION` only if older
+   builds genuinely cannot work) in the AI2SQL Vercel project.
+
+The download pages point at `releases/latest/download/…`, so they need no
+change per release.
