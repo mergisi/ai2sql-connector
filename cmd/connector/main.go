@@ -293,7 +293,11 @@ func main() {
 		}
 		tables, err := dbinspect.Inspect(r.Context(), cfg)
 		if err != nil {
-			track.Track("connector_schema_load_failed", map[string]any{"driver": cfg.Driver})
+			// Category and driver code only — the raw message can carry the
+			// host, the user and the password.
+			reason, code := dbinspect.Classify(err)
+			track.Track("connector_schema_load_failed", map[string]any{
+				"driver": cfg.Driver, "failure_reason": reason, "error_code": code})
 			writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
 			return
 		}
@@ -322,8 +326,10 @@ func main() {
 				writeJSON(w, map[string]any{"ok": false, "blocked": true, "error": blocked.Reason})
 				return
 			}
+			reason, code := dbinspect.Classify(err)
 			track.Track("connector_query_failed", map[string]any{
-				"driver": req.Driver, "failure_reason": "db_error", "query_mode": "read_only"})
+				"driver": req.Driver, "failure_reason": reason, "error_code": code,
+				"query_mode": "read_only"})
 			writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
 			return
 		}
