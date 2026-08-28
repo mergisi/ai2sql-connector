@@ -42,13 +42,22 @@ var forbiddenAnywhere = []string{
 	"attach", "detach", "pragma", "shutdown",
 }
 
-// Functions and prefixes that reach outside the query even inside a SELECT.
-var dangerousCalls = []string{
+// Functions that reach outside the query even inside a SELECT. Matched as
+// whole identifiers, not substrings: this list used to be checked with
+// strings.Contains, which blocked an ordinary read of a column called
+// exp_date (it contains "xp_") or bulk_qty (it contains "bulk"). A Pro trial
+// on a 537-table SQL Server schema hit exactly that and cancelled.
+var dangerousExact = []string{
 	"pg_read_file", "pg_read_binary_file", "pg_ls_dir", "pg_stat_file",
 	"lo_import", "lo_export", "dblink", "pg_terminate_backend", "pg_cancel_backend",
 	"load_file", "sys_exec", "sys_eval",
-	"xp_", "sp_oa", "sp_execute", "openrowset", "opendatasource", "bulk",
+	"openrowset", "opendatasource", "bulk",
 }
+
+// Families where the danger is the prefix of the identifier itself —
+// xp_cmdshell, sp_OACreate, sp_executesql. The identifier has to START with
+// these, so exp_date and resp_time are left alone.
+var dangerousPrefixes = []string{"xp_", "sp_oa", "sp_execute"}
 
 var (
 	lineComment  = regexp.MustCompile(`--[^\n]*`)
@@ -159,10 +168,18 @@ func Validate(sql string) error {
 		return &ErrBlocked{Reason: "AI2SQL Connector is read-only. SELECT ... INTO writes a new table or file."}
 	}
 
-	for _, d := range dangerousCalls {
-		if strings.Contains(stmt, d) {
-			return &ErrBlocked{Reason: "AI2SQL Connector is read-only. This query calls " + d +
-				", which can reach outside the database."}
+	for _, w := range words {
+		for _, d := range dangerousExact {
+			if w == d {
+				return &ErrBlocked{Reason: "AI2SQL Connector is read-only. This query calls " +
+					strings.ToUpper(d) + ", which can reach outside the database."}
+			}
+		}
+		for _, p := range dangerousPrefixes {
+			if strings.HasPrefix(w, p) {
+				return &ErrBlocked{Reason: "AI2SQL Connector is read-only. This query calls " +
+					strings.ToUpper(w) + ", which can reach outside the database."}
+			}
 		}
 	}
 	return nil

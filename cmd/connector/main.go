@@ -49,7 +49,7 @@ func envOr(k, def string) string {
 	return def
 }
 
-const version = "0.2.1"
+const version = "0.2.2"
 
 type state struct {
 	mu         sync.Mutex
@@ -401,7 +401,13 @@ func main() {
 			return
 		}
 		if res.StatusCode != http.StatusOK {
-			track.Track("connector_generate_failed", map[string]any{"reason": "api_" + fmt.Sprint(res.StatusCode), "dialect": req.Dialect})
+			// The status alone left us guessing: five api_400s in six minutes
+			// cost a Pro trial and there was no way to tell which of the
+			// route's 400 branches fired. The API's own message is short and
+			// written for a person, so it is carried through.
+			track.Track("connector_generate_failed", map[string]any{
+				"reason": "api_" + fmt.Sprint(res.StatusCode), "dialect": req.Dialect,
+				"api_message": apiErrorMessage(raw)})
 			writeJSON(w, map[string]any{"ok": false, "error": fmt.Sprintf("API error (%d): %s", res.StatusCode, truncate(string(raw), 300))})
 			return
 		}
@@ -570,6 +576,25 @@ func openBrowser(url string) {
 func writeJSON(w http.ResponseWriter, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(v)
+}
+
+// apiErrorMessage pulls the human-readable message out of the API's JSON error
+// body so a failure event says what actually went wrong instead of just "400".
+// Only the API's own short message is taken — never the request or the SQL.
+func apiErrorMessage(raw []byte) string {
+	var e struct {
+		Message string `json:"message"`
+		Error   string `json:"error"`
+	}
+	if json.Unmarshal(raw, &e) == nil {
+		if e.Message != "" {
+			return truncate(e.Message, 160)
+		}
+		if e.Error != "" {
+			return truncate(e.Error, 160)
+		}
+	}
+	return ""
 }
 
 func truncate(s string, n int) string {
