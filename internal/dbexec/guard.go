@@ -52,12 +52,19 @@ var dangerousExact = []string{
 	"lo_import", "lo_export", "dblink", "pg_terminate_backend", "pg_cancel_backend",
 	"load_file", "sys_exec", "sys_eval",
 	"openrowset", "opendatasource", "bulk",
+	// Oracle: packages that reach outside the database from inside a SELECT.
+	// dbms_ as a family is deliberately NOT here — dbms_random and dbms_lob
+	// appear in ordinary read queries; only the escape hatches are named.
+	"dbms_scheduler", "dbms_java", "dbms_pipe", "dbms_backup_restore",
 }
 
 // Families where the danger is the prefix of the identifier itself —
 // xp_cmdshell, sp_OACreate, sp_executesql. The identifier has to START with
 // these, so exp_date and resp_time are left alone.
-var dangerousPrefixes = []string{"xp_", "sp_oa", "sp_execute"}
+// utl_ covers Oracle's utl_file/utl_http/utl_tcp/utl_smtp family — every one
+// of them is an exfiltration or file-access vector, and no ordinary column
+// starts with utl_.
+var dangerousPrefixes = []string{"xp_", "sp_oa", "sp_execute", "utl_"}
 
 var (
 	lineComment  = regexp.MustCompile(`--[^\n]*`)

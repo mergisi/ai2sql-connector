@@ -48,6 +48,11 @@ func Execute(ctx context.Context, cfg dbinspect.Config, query string) (*Result, 
 	if err != nil {
 		return nil, err
 	}
+	if driverName == "oracle" {
+		// Oracle rejects a trailing semicolon (ORA-00933); every other engine
+		// tolerates it, and generated SQL almost always carries one.
+		query = strings.TrimRight(strings.TrimSpace(query), ";")
+	}
 	db, err := sql.Open(driverName, dsn)
 	if err != nil {
 		return nil, err
@@ -102,6 +107,9 @@ func Execute(ctx context.Context, cfg dbinspect.Config, query string) (*Result, 
 // write even if the classifier somehow let one through — the second layer of
 // defense. SQL Server has no equivalent, so there the classifier and a
 // read-only login are what stand in the way, which is why the UI recommends one.
+// Oracle sits with SQL Server: go-ora does not honor TxOptions.ReadOnly, and
+// claiming a protection the driver silently drops would be worse than not
+// having it.
 func queryReadOnly(ctx context.Context, db *sql.DB, driverName, query string) (*sql.Rows, error) {
 	switch driverName {
 	case "pgx", "mysql":
@@ -158,7 +166,7 @@ func friendly(err error, ctx context.Context) error {
 	case strings.Contains(low, "connection refused"), strings.Contains(low, "no such host"):
 		return errors.New("Could not reach the database. Is it still running?")
 	case strings.Contains(low, "password authentication failed"), strings.Contains(low, "access denied"),
-		strings.Contains(low, "login failed"):
+		strings.Contains(low, "login failed"), strings.Contains(low, "ora-01017"):
 		return errors.New("The database rejected the username or password.")
 	case strings.Contains(low, "permission denied"), strings.Contains(low, "must be owner"):
 		return errors.New("This database user is not allowed to read that: " + s)

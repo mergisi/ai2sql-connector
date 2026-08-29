@@ -188,6 +188,7 @@
             <option value="postgres">PostgreSQL</option>
             <option value="mysql">MySQL</option>
             <option value="sqlserver">SQL Server</option>
+            <option value="oracle">Oracle</option>
           </select>
           <div class="two">
             <div><label for="host">Host</label><input id="host" value="localhost" spellcheck="false"></div>
@@ -261,9 +262,9 @@
 
 <script>
 const $ = (id) => document.getElementById(id);
-const PORTS = { postgres:'5432', mysql:'3306', sqlserver:'1433' };
-const DIALECTS = { postgres:'postgres', mysql:'mysql', sqlserver:'sql_server' };
-const LABELS = { postgres:'PostgreSQL', mysql:'MySQL', sqlserver:'SQL Server' };
+const PORTS = { postgres:'5432', mysql:'3306', sqlserver:'1433', oracle:'1521' };
+const DIALECTS = { postgres:'postgres', mysql:'mysql', sqlserver:'sql_server', oracle:'oracle' };
+const LABELS = { postgres:'PostgreSQL', mysql:'MySQL', sqlserver:'SQL Server', oracle:'Oracle' };
 let allTables = [];
 const selected = new Set();
 
@@ -297,7 +298,13 @@ $('signout').addEventListener('click', async () => {
 });
 
 // ---- schema ----
-$('driver').addEventListener('change', () => { $('port').value = PORTS[$('driver').value]; });
+$('driver').addEventListener('change', () => {
+  $('port').value = PORTS[$('driver').value];
+  // Oracle connects to a service, not a database name; the placeholder is the
+  // difference between "my_database failed" and a first-try connection.
+  const oracle = $('driver').value === 'oracle';
+  $('dbName').placeholder = oracle ? 'service name, e.g. XEPDB1' : 'my_database';
+});
 
 $('inspect').addEventListener('click', async () => {
   $('inspect').disabled = true;

@@ -18,6 +18,7 @@ import (
 	_ "github.com/go-sql-driver/mysql"
 	_ "github.com/jackc/pgx/v5/stdlib"
 	_ "github.com/microsoft/go-mssqldb"
+	_ "github.com/sijms/go-ora/v2"
 )
 
 type Column struct {
@@ -31,7 +32,7 @@ type Table struct {
 }
 
 type Config struct {
-	Driver   string `json:"driver"` // postgres | mysql | sqlserver
+	Driver   string `json:"driver"` // postgres | mysql | sqlserver | oracle
 	Host     string `json:"host"`
 	Port     string `json:"port"`
 	User     string `json:"user"`
@@ -157,6 +158,29 @@ func plan(c Config) (driverName, dsn, query string, err error) {
 			`SELECT TABLE_NAME, COLUMN_NAME, DATA_TYPE
 			   FROM INFORMATION_SCHEMA.COLUMNS
 			  ORDER BY TABLE_NAME, ORDINAL_POSITION`, nil
+	case "oracle":
+		// go-ora is pure Go — no Oracle Instant Client on the user's machine,
+		// which is the whole point of a single downloadable binary. The
+		// "database" field is Oracle's service name (ORCLPDB1, XEPDB1, ...).
+		port := defaultPort(c.Port, "1521")
+		u := &url.URL{
+			Scheme: "oracle",
+			Host:   net.JoinHostPort(host, port),
+			Path:   "/" + c.Database,
+		}
+		if c.User != "" {
+			if c.Password != "" {
+				u.User = url.UserPassword(c.User, c.Password)
+			} else {
+				u.User = url.User(c.User)
+			}
+		}
+		// user_tab_columns: the tables the signed-in schema owns. all_tab_columns
+		// would drag in thousands of SYS/SYSTEM dictionary rows on a stock install.
+		return "oracle", u.String(),
+			`SELECT table_name, column_name, data_type
+			   FROM user_tab_columns
+			  ORDER BY table_name, column_id`, nil
 	default:
 		return "", "", "", fmt.Errorf("unsupported driver %q", c.Driver)
 	}
@@ -176,9 +200,9 @@ func friendly(err error) error {
 	switch {
 	case strings.Contains(s, "connection refused"):
 		return fmt.Errorf("nothing is listening there — is the database running? (%s)", s)
-	case strings.Contains(s, "password authentication failed"), strings.Contains(s, "Access denied"), strings.Contains(s, "Login failed"):
+	case strings.Contains(s, "password authentication failed"), strings.Contains(s, "Access denied"), strings.Contains(s, "Login failed"), strings.Contains(s, "ORA-01017"):
 		return fmt.Errorf("the database rejected the username or password (%s)", s)
-	case strings.Contains(s, "does not exist"), strings.Contains(s, "Unknown database"):
+	case strings.Contains(s, "does not exist"), strings.Contains(s, "Unknown database"), strings.Contains(s, "ORA-12514"):
 		return fmt.Errorf("that database name does not exist on the server (%s)", s)
 	default:
 		return err
