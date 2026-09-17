@@ -55,3 +55,55 @@ func TestClassifyNil(t *testing.T) {
 		t.Fatalf("Classify(nil) = %q/%q, want empty", r, c)
 	}
 }
+
+func TestShapeRedactsValuesAndKeepsWording(t *testing.T) {
+	cases := []struct {
+		msg  string
+		want []string // substrings that must survive
+		deny []string // values that must not
+	}{
+		{
+			msg:  `failed to connect to host=db.internal user=app database=shop: password authentication failed for user "app"`,
+			want: []string{"failed to connect to", "password authentication failed"},
+			deny: []string{"db.internal", "app", "shop"},
+		},
+		{
+			msg:  "dial tcp 10.0.0.2:5432: connect: connection refused",
+			want: []string{"connection refused"},
+			deny: []string{"10.0.0.2", "5432"},
+		},
+		{
+			msg:  `Error 1045: Access denied for user 'root'@'localhost' (using password: YES)`,
+			want: []string{"access denied for user"},
+			deny: []string{"root", "localhost"},
+		},
+		{
+			msg:  `open /Users/ben/.pgpass: permission denied`,
+			want: []string{"permission denied"},
+			deny: []string{"/Users/ben", ".pgpass"},
+		},
+	}
+	for _, c := range cases {
+		got := Shape(errors.New(c.msg))
+		for _, w := range c.want {
+			if !strings.Contains(got, w) {
+				t.Errorf("Shape(%q) = %q, expected it to keep %q", c.msg, got, w)
+			}
+		}
+		for _, d := range c.deny {
+			if strings.Contains(got, strings.ToLower(d)) {
+				t.Errorf("Shape(%q) = %q, leaked %q", c.msg, got, d)
+			}
+		}
+	}
+}
+
+func TestShapeIsBounded(t *testing.T) {
+	long := strings.Repeat("wordy ", 200)
+	if got := Shape(errors.New(long)); len(got) > 160 {
+		t.Errorf("Shape did not bound its output: %d chars", len(got))
+	}
+	if Shape(nil) != "" {
+		t.Error("Shape(nil) should be empty")
+	}
+}

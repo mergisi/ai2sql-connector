@@ -85,3 +85,53 @@ func extractCode(msg string) string {
 	}
 	return ""
 }
+
+// Shape turns an unclassified driver error into a redacted skeleton safe to
+// send to analytics.
+//
+// Why this exists: over the 60 days to 16 Sep, `connector_schema_load_failed`
+// fired 50 times across 9 people and the overwhelming majority carried
+// failure_reason "unknown" with an empty code. Classify deliberately drops the
+// raw message because a DSN error can quote a host, a user or a password, and
+// that was the right call. The cost was that the single biggest failure mode
+// in the connector could not be read at all, so it could not be fixed.
+//
+// Shape keeps the sentence structure and throws away every value: quoted and
+// backticked runs go first, then any token holding a host, a path, an address
+// or an @, then digits collapse to #. What survives is the wording the driver
+// chose, which is enough to add a Classify case next week.
+func Shape(err error) string {
+	if err == nil {
+		return ""
+	}
+	s := strings.ToLower(err.Error())
+	s = quoted.ReplaceAllString(s, "?")
+	out := make([]string, 0, 24)
+	for _, tok := range strings.Fields(s) {
+		// key=value is how every driver spells out a DSN, and the value half
+		// is exactly what must not travel. Keep the key so the wording stays
+		// readable, drop the value.
+		if i := strings.Index(tok, "="); i > 0 {
+			out = append(out, tok[:i]+"=?")
+			continue
+		}
+		// An address, a path, a mail-shaped identifier or a hostname.
+		if strings.ContainsAny(tok, "@/\\") || strings.Contains(tok, ".") ||
+			(strings.Contains(tok, ":") && digit.MatchString(tok)) {
+			out = append(out, "?")
+			continue
+		}
+		out = append(out, digit.ReplaceAllString(tok, "#"))
+	}
+	s = strings.Join(out, " ")
+	// A skeleton long enough to read is short enough not to smuggle anything.
+	if len(s) > 160 {
+		s = s[:160]
+	}
+	return s
+}
+
+var (
+	quoted = regexp.MustCompile("'[^']*'|\"[^\"]*\"|`[^`]*`")
+	digit  = regexp.MustCompile(`\d+`)
+)

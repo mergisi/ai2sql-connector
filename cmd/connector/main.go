@@ -49,7 +49,7 @@ func envOr(k, def string) string {
 	return def
 }
 
-const version = "0.2.3"
+const version = "0.2.4"
 
 type state struct {
 	mu         sync.Mutex
@@ -269,9 +269,62 @@ func main() {
 		writeJSON(w, map[string]any{"ok": true})
 	})
 
+	// What the signed-in account is actually allowed to do this month. The
+	// connector never asked the account anything, so it never had a number to
+	// show and never made an offer: 60 days to 16 Sep saw 23 installs, 4
+	// successful queries and zero upgrade prompts of any kind.
+	//
+	// Read live rather than from the stored snapshot. The generation quota
+	// moves with every prompt, and a stale "100 left" next to a real result is
+	// worse than no number at all.
+	mux.HandleFunc("GET /api/quota", func(w http.ResponseWriter, r *http.Request) {
+		c := creds.Get()
+		key := c.Key
+		if key == "" {
+			key = apiKey
+		}
+		if key == "" {
+			writeJSON(w, map[string]any{"ok": false, "signed_in": false})
+			return
+		}
+		req, err := http.NewRequestWithContext(r.Context(), "GET", *builderURL+"/api/connector/me", nil)
+		if err != nil {
+			writeJSON(w, map[string]any{"ok": false})
+			return
+		}
+		req.Header.Set("X-API-Key", key)
+		res, err := (&http.Client{Timeout: 10 * time.Second}).Do(req)
+		if err != nil {
+			// Offline is not a selling moment; say nothing rather than guess.
+			writeJSON(w, map[string]any{"ok": false})
+			return
+		}
+		defer res.Body.Close()
+		var me struct {
+			Plan         string `json:"plan"`
+			MonthlyLimit int    `json:"monthly_limit"`
+			Used         *int   `json:"used"`
+			Remaining    *int   `json:"remaining"`
+			UpgradeURL   string `json:"upgrade_url"`
+		}
+		if err := json.NewDecoder(res.Body).Decode(&me); err != nil {
+			writeJSON(w, map[string]any{"ok": false})
+			return
+		}
+		writeJSON(w, map[string]any{
+			"ok": true, "signed_in": true, "plan": me.Plan,
+			"monthly_limit": me.MonthlyLimit, "used": me.Used, "remaining": me.Remaining,
+			"upgrade_url": me.UpgradeURL,
+		})
+	})
+
 	// UI-side events (button clicks the Go side cannot see). Allowlisted so
 	// the local page cannot mint arbitrary event names into the project.
-	uiEvents := map[string]bool{"connector_sql_copied": true, "connector_signin_clicked": true, "connector_query_run_clicked": true, "connector_update_clicked": true}
+	uiEvents := map[string]bool{"connector_sql_copied": true, "connector_signin_clicked": true, "connector_query_run_clicked": true, "connector_update_clicked": true,
+		// The offer made after a query succeeds, and the click on it. Without
+		// these two the connector's money path stays as unmeasurable as it was
+		// unbuilt.
+		"connector_upgrade_shown": true, "connector_upgrade_clicked": true, "connector_upgrade_dismissed": true}
 	mux.HandleFunc("POST /api/track", func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
 			Event string `json:"event"`
@@ -296,8 +349,15 @@ func main() {
 			// Category and driver code only — the raw message can carry the
 			// host, the user and the password.
 			reason, code := dbinspect.Classify(err)
-			track.Track("connector_schema_load_failed", map[string]any{
-				"driver": cfg.Driver, "failure_reason": reason, "error_code": code})
+			props := map[string]any{"driver": cfg.Driver, "failure_reason": reason, "error_code": code}
+			// Schema loading is the connector's biggest failure mode and almost
+			// all of it lands in "unknown", which cannot be acted on. Send the
+			// redacted wording for those only; a classified error already
+			// tells us what we need.
+			if reason == "unknown" {
+				props["failure_shape"] = dbinspect.Shape(err)
+			}
+			track.Track("connector_schema_load_failed", props)
 			writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
 			return
 		}
@@ -327,9 +387,12 @@ func main() {
 				return
 			}
 			reason, code := dbinspect.Classify(err)
-			track.Track("connector_query_failed", map[string]any{
-				"driver": req.Driver, "failure_reason": reason, "error_code": code,
-				"query_mode": "read_only"})
+			props := map[string]any{"driver": req.Driver, "failure_reason": reason,
+				"error_code": code, "query_mode": "read_only"}
+			if reason == "unknown" {
+				props["failure_shape"] = dbinspect.Shape(err)
+			}
+			track.Track("connector_query_failed", props)
 			writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
 			return
 		}

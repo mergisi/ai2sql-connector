@@ -255,6 +255,27 @@
           </div>
           <div id="resBody" class="res-body"></div>
         </section>
+
+        <!-- Shown once, after a query has actually returned rows from the
+             user's own database. That is the only moment in this app where
+             the value is already proven, so it is the only place worth
+             making an offer. -->
+        <section class="card" id="offerCard" style="margin-top:16px; display:none">
+          <div style="display:flex; gap:14px; align-items:flex-start">
+            <div style="font-size:22px; line-height:1">&#x1F513;</div>
+            <div style="flex:1; min-width:0">
+              <div style="font-weight:600; margin-bottom:6px">That ran on your own database</div>
+              <p id="offerBody" style="font-size:13px; color:var(--muted); line-height:1.55; margin:0 0 14px"></p>
+              <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap">
+                <a id="offerCta" href="#" target="_blank" rel="noopener"
+                   style="display:inline-block; padding:9px 16px; border-radius:9px; font-size:13px; font-weight:600;
+                          color:#fff; text-decoration:none; background:linear-gradient(140deg,var(--accent),var(--accent2))">See plans</a>
+                <button id="offerDismiss"
+                        style="background:none; border:0; color:var(--dim); font-size:12.5px; cursor:pointer; padding:9px 4px">Not now</button>
+              </div>
+            </div>
+          </div>
+        </section>
       </div>
     </div>
   </main>
@@ -439,6 +460,7 @@ function highlight(sql) {
 // ---- run the query locally ----
 function hideResults() {
   $('resultCard').style.display = 'none';
+  if ($('offerCard')) $('offerCard').style.display = 'none';
   $('resBody').innerHTML = '';
   $('resMeta').textContent = '';
 }
@@ -475,6 +497,7 @@ $('runSql').addEventListener('click', async () => {
       return;
     }
     renderResult(d.result);
+    maybeOffer(d.result);
   } catch (e) {
     showNote('err', "Query couldn't be executed", e.message);
   } finally {
@@ -482,6 +505,47 @@ $('runSql').addEventListener('click', async () => {
     $('runSql').innerHTML = '▶ Run Query';
   }
 });
+
+/* The offer, and the rules around it.
+   Only after rows have actually come back, only on the free plan, and only
+   once per run of the app. The number quoted is the live monthly generation
+   allowance from the account, not a figure invented here: an offer that
+   misstates the limit is worse than no offer. */
+let offerDone = false;
+async function maybeOffer(res) {
+  if (offerDone || !res || !res.row_count) return;
+  offerDone = true;
+  let q;
+  try {
+    q = await (await fetch('/api/quota')).json();
+  } catch (e) { return; }
+  if (!q || !q.ok || !q.signed_in) return;
+  if ((q.plan || 'free') !== 'free') return;
+
+  const used = typeof q.used === 'number' ? q.used : null;
+  const limit = q.monthly_limit || 100;
+  const allowance = used === null
+    ? 'The free plan includes ' + limit + ' AI generations a month.'
+    : 'You have used ' + used + ' of ' + limit + ' AI generations this month on the free plan.';
+
+  $('offerBody').innerHTML =
+    'Your credentials and your rows never left this machine. ' + esc(allowance) +
+    ' A paid plan raises that limit and keeps everything else exactly as it is.';
+  $('offerCta').href = q.upgrade_url || 'https://ai2sql.io/dashboard/choose-plan?source=connector';
+  $('offerCard').style.display = 'block';
+  ping('connector_upgrade_shown');
+
+  $('offerCta').onclick = () => ping('connector_upgrade_clicked');
+  $('offerDismiss').onclick = () => {
+    $('offerCard').style.display = 'none';
+    ping('connector_upgrade_dismissed');
+  };
+}
+
+function ping(event) {
+  fetch('/api/track', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ event: event }) }).catch(() => {});
+}
 
 function renderResult(res) {
   $('resultCard').style.display = 'flex';
