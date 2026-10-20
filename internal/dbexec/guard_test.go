@@ -133,3 +133,40 @@ func TestValidateBlockRule(t *testing.T) {
 		}
 	}
 }
+
+// Comment markers inside a literal used to be stripped before the literal
+// was, which ate its closing quote and hid whatever came next. Every "block"
+// case here passed the guard before the single-pass lexer.
+func TestCommentMarkersInsideLiterals(t *testing.T) {
+	block := []string{
+		"SELECT '--'\n; DELETE FROM users; SELECT ''",
+		`SELECT '/*' AS x; DELETE FROM users; SELECT '*/'`,
+		`SELECT "--" FROM t; DROP TABLE t`,
+		"SELECT [a--b] FROM t; UPDATE t SET a = 1",
+		// SQL Server and PostgreSQL end the literal at 'a\' — the DELETE is real
+		// there even though MySQL would read it as part of the string.
+		`SELECT 'a\'; DELETE FROM users; SELECT '\'`,
+		// And the MySQL reading: \' continues the literal, so the second
+		// quote opens nothing and the DROP is outside.
+		`SELECT 'it\'s'; DROP TABLE t; SELECT '1'`,
+	}
+	for _, q := range block {
+		if Validate(q) == nil {
+			t.Errorf("should block:\n  %s", q)
+		}
+	}
+	allow := []string{
+		`SELECT 'a--b' AS note FROM t`,
+		`SELECT '/* not a comment */' AS note`,
+		`SELECT '-- note' || ' cannot execute this' AS message`,
+		"SELECT 1 -- trailing comment with 'quote\nFROM dual",
+		"/* header\n   DELETE mentioned here */ SELECT * FROM orders",
+		`SELECT path FROM files WHERE path LIKE 'C:\temp\%'`,
+		`SELECT * FROM t WHERE name = 'O''Brien' -- it's fine`,
+	}
+	for _, q := range allow {
+		if err := Validate(q); err != nil {
+			t.Errorf("should allow:\n  %s\n  reason: %v", q, err)
+		}
+	}
+}
