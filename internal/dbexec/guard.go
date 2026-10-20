@@ -77,9 +77,7 @@ var dangerousExact = []string{
 var dangerousPrefixes = []string{"xp_", "sp_oa", "sp_execute", "utl_"}
 
 var (
-	lineComment  = regexp.MustCompile(`--[^\n]*`)
-	blockComment = regexp.MustCompile(`(?s)/\*.*?\*/`)
-	wordRe       = regexp.MustCompile(`[a-z_][a-z0-9_]*`)
+	wordRe = regexp.MustCompile(`[a-z_][a-z0-9_]*`)
 	// SELECT ... INTO <name> creates a table in PostgreSQL and SQL Server, and
 	// writes a file in MySQL. INSERT INTO is caught by the "insert" keyword, so
 	// any remaining INTO is the dangerous kind.
@@ -89,31 +87,54 @@ var (
 // strip removes comments and the contents of string/identifier literals, so
 // keyword matching cannot be fooled by a value like '; DROP TABLE users --'
 // and cannot false-positive on a legitimate string containing "delete".
-func strip(sql string) string {
-	s := blockComment.ReplaceAllString(sql, " ")
-	s = lineComment.ReplaceAllString(s, " ")
-
+//
+// Comments and literals are read in one left-to-right pass, the way the
+// database reads them. They used to be removed in two steps — comments by
+// regex first, then literals — and a literal holding "--" or "/*" lost its
+// closing quote to the comment step. Everything after it then looked like the
+// inside of a string: SELECT '/*' AS x; DELETE FROM users; SELECT '*/' passed
+// as one harmless statement. On SQL Server and Oracle the guard is the only
+// layer, so that DELETE would have run.
+//
+// backslashEscapes says whether a backslash-quote continues a literal. MySQL reads it that
+// way by default; PostgreSQL, SQL Server and Oracle do not. Validate does not
+// know the engine, so it checks both readings.
+func strip(sql string, backslashEscapes bool) string {
 	var b strings.Builder
-	runes := []rune(s)
-	for i := 0; i < len(runes); i++ {
+	runes := []rune(sql)
+	n := len(runes)
+	for i := 0; i < n; i++ {
 		c := runes[i]
-		switch c {
-		case '\'', '"', '`', '[':
+		switch {
+		case c == '-' && i+1 < n && runes[i+1] == '-':
+			for i < n && runes[i] != '\n' {
+				i++
+			}
+			b.WriteRune('\n')
+		case c == '/' && i+1 < n && runes[i+1] == '*':
+			// An unclosed comment swallows the rest, as the engine would.
+			i += 2
+			for i < n && !(runes[i] == '*' && i+1 < n && runes[i+1] == '/') {
+				i++
+			}
+			i++ // past the closing '/'
+			b.WriteRune(' ')
+		case c == '\'' || c == '"' || c == '`' || c == '[':
 			closing := c
 			if c == '[' {
 				closing = ']'
 			}
 			i++
-			for i < len(runes) {
+			for i < n {
 				// Doubled quote is an escaped quote inside the literal.
 				if runes[i] == closing {
-					if closing != ']' && i+1 < len(runes) && runes[i+1] == closing {
+					if closing != ']' && i+1 < n && runes[i+1] == closing {
 						i += 2
 						continue
 					}
 					break
 				}
-				if runes[i] == '\\' && closing != ']' {
+				if backslashEscapes && runes[i] == '\\' && closing != ']' {
 					i++ // skip the escaped character
 				}
 				i++
@@ -138,12 +159,19 @@ func splitStatements(stripped string) []string {
 	return out
 }
 
-// Validate reports whether the SQL is safe to run in read-only mode.
+// Validate reports whether the SQL is safe to run in read-only mode. It must
+// be safe under both readings of a backslash inside a literal (see strip).
 func Validate(sql string) error {
 	if strings.TrimSpace(sql) == "" {
 		return &ErrBlocked{Reason: "There is no query to run.", Rule: "empty"}
 	}
-	stripped := strip(sql)
+	if err := validateStripped(strip(sql, false)); err != nil {
+		return err
+	}
+	return validateStripped(strip(sql, true))
+}
+
+func validateStripped(stripped string) error {
 	stmts := splitStatements(stripped)
 
 	if len(stmts) == 0 {
