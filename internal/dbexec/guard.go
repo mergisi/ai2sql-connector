@@ -21,7 +21,17 @@ import (
 
 // ErrBlocked is returned for anything the guard will not run. The message is
 // written for the person reading it, not for a log.
-type ErrBlocked struct{ Reason string }
+//
+// Rule and Word say which check fired, for analytics. Without them every
+// rejection arrived as a bare "blocked": 18 of them since September against
+// 11 successful runs, and no way to tell a real DELETE from a column the
+// guard mistook for one. Word is only ever one of our own list entries or a
+// known keyword, never an identifier from the user's schema.
+type ErrBlocked struct {
+	Reason string
+	Rule   string // empty, multi_statement, not_a_query, first_word, keyword, select_into, dangerous_fn, dangerous_prefix
+	Word   string
+}
 
 func (e *ErrBlocked) Error() string { return e.Reason }
 
@@ -131,23 +141,23 @@ func splitStatements(stripped string) []string {
 // Validate reports whether the SQL is safe to run in read-only mode.
 func Validate(sql string) error {
 	if strings.TrimSpace(sql) == "" {
-		return &ErrBlocked{Reason: "There is no query to run."}
+		return &ErrBlocked{Reason: "There is no query to run.", Rule: "empty"}
 	}
 	stripped := strip(sql)
 	stmts := splitStatements(stripped)
 
 	if len(stmts) == 0 {
-		return &ErrBlocked{Reason: "There is no query to run."}
+		return &ErrBlocked{Reason: "There is no query to run.", Rule: "empty"}
 	}
 	if len(stmts) > 1 {
 		return &ErrBlocked{Reason: "Only one statement can be run at a time. This query contains " +
-			fmt.Sprint(len(stmts)) + " statements."}
+			fmt.Sprint(len(stmts)) + " statements.", Rule: "multi_statement"}
 	}
 
 	stmt := stmts[0]
 	words := wordRe.FindAllString(stmt, -1)
 	if len(words) == 0 {
-		return &ErrBlocked{Reason: "This does not look like a query."}
+		return &ErrBlocked{Reason: "This does not look like a query.", Rule: "not_a_query"}
 	}
 
 	// Must read, not act. WITH is allowed because CTEs are ordinary in
@@ -157,7 +167,7 @@ func Validate(sql string) error {
 	case "select", "with", "show", "explain", "describe", "desc", "table", "values":
 	default:
 		return &ErrBlocked{Reason: "AI2SQL Connector is read-only, so it only runs queries that read data. This one starts with " +
-			strings.ToUpper(words[0]) + "."}
+			strings.ToUpper(words[0]) + ".", Rule: "first_word", Word: knownFirstWord(words[0])}
 	}
 
 	for _, w := range words {
@@ -166,28 +176,49 @@ func Validate(sql string) error {
 				// EXPLAIN ANALYZE actually executes the statement it explains,
 				// which is exactly the hole this catches.
 				return &ErrBlocked{Reason: "AI2SQL Connector is read-only. This query uses " +
-					strings.ToUpper(w) + ", which can change your database."}
+					strings.ToUpper(w) + ", which can change your database.", Rule: "keyword", Word: w}
 			}
 		}
 	}
 
 	if intoRe.MatchString(stmt) {
-		return &ErrBlocked{Reason: "AI2SQL Connector is read-only. SELECT ... INTO writes a new table or file."}
+		return &ErrBlocked{Reason: "AI2SQL Connector is read-only. SELECT ... INTO writes a new table or file.", Rule: "select_into"}
 	}
 
 	for _, w := range words {
 		for _, d := range dangerousExact {
 			if w == d {
 				return &ErrBlocked{Reason: "AI2SQL Connector is read-only. This query calls " +
-					strings.ToUpper(d) + ", which can reach outside the database."}
+					strings.ToUpper(d) + ", which can reach outside the database.", Rule: "dangerous_fn", Word: d}
 			}
 		}
 		for _, p := range dangerousPrefixes {
 			if strings.HasPrefix(w, p) {
 				return &ErrBlocked{Reason: "AI2SQL Connector is read-only. This query calls " +
-					strings.ToUpper(w) + ", which can reach outside the database."}
+					strings.ToUpper(w) + ", which can reach outside the database.", Rule: "dangerous_prefix", Word: p}
 			}
 		}
 	}
 	return nil
+}
+
+// Statement openers worth naming in analytics. Anything else — most likely a
+// word the model wrote as prose, or an identifier — is reported as "other" so
+// no part of the user's schema leaves the machine.
+var firstWords = map[string]bool{
+	"declare": true, "use": true, "set": true, "begin": true, "if": true,
+	"go": true, "print": true, "commit": true, "rollback": true, "lock": true,
+	"vacuum": true, "analyze": true, "backup": true, "restore": true, "dbcc": true,
+}
+
+func knownFirstWord(w string) string {
+	if firstWords[w] {
+		return w
+	}
+	for _, f := range forbiddenAnywhere {
+		if w == f {
+			return w
+		}
+	}
+	return "other"
 }
