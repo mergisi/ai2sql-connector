@@ -107,3 +107,29 @@ func TestSelectIntoBlockedByItself(t *testing.T) {
 		t.Error("SELECT INTO should be blocked")
 	}
 }
+
+// Every rejection names the rule that fired, and Word never carries an
+// identifier from the user's schema.
+func TestValidateBlockRule(t *testing.T) {
+	cases := []struct{ sql, rule, word string }{
+		{``, "empty", ""},
+		{`SELECT 1; SELECT 2`, "multi_statement", ""},
+		{`DECLARE @g nvarchar(50) = N'x'`, "first_word", "declare"},
+		{`Ponudba`, "first_word", "other"},
+		{`SELECT * FROM t WHERE x = 1 OR merge = 2`, "keyword", "merge"},
+		{`SELECT * INTO backup FROM users`, "select_into", ""},
+		{`SELECT * FROM openrowset('x')`, "dangerous_fn", "openrowset"},
+		{`SELECT xp_secret_col FROM t`, "dangerous_prefix", "xp_"},
+	}
+	for _, c := range cases {
+		err := Validate(c.sql)
+		b, ok := err.(*ErrBlocked)
+		if !ok {
+			t.Errorf("%q: want ErrBlocked, got %v", c.sql, err)
+			continue
+		}
+		if b.Rule != c.rule || b.Word != c.word {
+			t.Errorf("%q: got rule=%q word=%q, want %q %q", c.sql, b.Rule, b.Word, c.rule, c.word)
+		}
+	}
+}

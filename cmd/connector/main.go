@@ -382,7 +382,8 @@ func main() {
 			var blocked *dbexec.ErrBlocked
 			if errors.As(err, &blocked) {
 				track.Track("connector_query_failed", map[string]any{
-					"driver": req.Driver, "failure_reason": "blocked", "query_mode": "read_only"})
+					"driver": req.Driver, "failure_reason": "blocked", "query_mode": "read_only",
+					"block_rule": blocked.Rule, "block_word": blocked.Word})
 				writeJSON(w, map[string]any{"ok": false, "blocked": true, "error": blocked.Reason})
 				return
 			}
