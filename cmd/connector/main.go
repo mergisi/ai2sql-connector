@@ -49,7 +49,7 @@ func envOr(k, def string) string {
 	return def
 }
 
-const version = "0.2.5"
+const version = "0.2.6"
 
 type state struct {
 	mu         sync.Mutex
