@@ -24,7 +24,7 @@ func Classify(err error) (reason, code string) {
 	// mentions the connection, and an auth failure often mentions the user.
 	case containsAny(msg, "ora-01017", "error 1045", "error 18456", "28p01",
 		"access denied", "authentication failed", "login failed",
-		"password authentication", "invalid username", "auth failed"):
+		"password authentication", "invalid username", "auth failed", "sqlstate 28000"):
 		return "auth_failed", code
 
 	case containsAny(msg, "tls", "ssl", "x509", "certificate"):
