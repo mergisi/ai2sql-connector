@@ -202,6 +202,11 @@ func friendly(err error) error {
 		return fmt.Errorf("nothing is listening there — is the database running? (%s)", s)
 	case strings.Contains(s, "password authentication failed"), strings.Contains(s, "Access denied"), strings.Contains(s, "Login failed"), strings.Contains(s, "ORA-01017"):
 		return fmt.Errorf("the database rejected the username or password (%s)", s)
+	// PostgreSQL words a wrong username as `role "x" does not exist`. It has to
+	// be caught before the database-name case below, which would send the
+	// person to fix a name that is already right.
+	case strings.Contains(s, `role "`) && strings.Contains(s, "does not exist"):
+		return fmt.Errorf("the database has no user with that username (%s)", s)
 	case strings.Contains(s, "does not exist"), strings.Contains(s, "Unknown database"), strings.Contains(s, "ORA-12514"):
 		return fmt.Errorf("that database name does not exist on the server (%s)", s)
 	default:

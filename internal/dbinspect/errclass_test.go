@@ -16,6 +16,8 @@ func TestClassify(t *testing.T) {
 		{"Error 1045: Access denied for user 'root'@'localhost'", "auth_failed", "1045"},
 		{"mssql: Login failed for user 'sa'.", "auth_failed", ""},
 		{`failed to connect: FATAL: password authentication failed for user "app" (SQLSTATE 28P01)`, "auth_failed", "28P01"},
+		{`failed to connect: FATAL: role "bob" does not exist (SQLSTATE 28000)`, "auth_failed", "28000"},
+		{"dial tcp 127.0.0.1:28000: connection refused", "host_unreachable", ""},
 		{"dial tcp 127.0.0.1:5432: connection refused", "host_unreachable", ""},
 		{"ORA-12154: TNS:could not resolve the connect identifier specified", "host_unreachable", "ORA-12154"},
 		{"dial tcp: lookup db.internal: no such host", "host_unreachable", ""},
@@ -105,5 +107,18 @@ func TestShapeIsBounded(t *testing.T) {
 	}
 	if Shape(nil) != "" {
 		t.Error("Shape(nil) should be empty")
+	}
+}
+
+// A wrong PostgreSQL username reads `role "x" does not exist`. It used to be
+// reported as a missing database, which pointed people at the wrong field.
+func TestFriendlyWrongUsername(t *testing.T) {
+	got := friendly(errors.New(`failed to connect: FATAL: role "bob" does not exist (SQLSTATE 28000)`)).Error()
+	if !strings.Contains(got, "username") || strings.Contains(got, "database name") {
+		t.Fatalf("wrong username reported as %q", got)
+	}
+	got = friendly(errors.New(`FATAL: database "shop" does not exist (SQLSTATE 3D000)`)).Error()
+	if !strings.Contains(got, "database name") {
+		t.Fatalf("missing database reported as %q", got)
 	}
 }
