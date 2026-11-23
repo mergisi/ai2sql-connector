@@ -24,6 +24,7 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"bytes"
@@ -41,6 +42,10 @@ import (
 )
 
 var apiKey string
+
+// inspectAttempts counts "Load schema" tries in this run of the connector, so
+// the analytics can tell a first-try failure from a fifth.
+var inspectAttempts atomic.Int64
 
 func envOr(k, def string) string {
 	if v := os.Getenv(k); v != "" {
@@ -324,7 +329,9 @@ func main() {
 		// The offer made after a query succeeds, and the click on it. Without
 		// these two the connector's money path stays as unmeasurable as it was
 		// unbuilt.
-		"connector_upgrade_shown": true, "connector_upgrade_clicked": true, "connector_upgrade_dismissed": true}
+		"connector_upgrade_shown": true, "connector_upgrade_clicked": true, "connector_upgrade_dismissed": true,
+		// The two ways out offered under a schema-load error.
+		"connector_error_cloud_clicked": true, "connector_error_sample_clicked": true}
 	mux.HandleFunc("POST /api/track", func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
 			Event string `json:"event"`
@@ -345,11 +352,21 @@ func main() {
 			return
 		}
 		tables, err := dbinspect.Inspect(r.Context(), cfg)
+		// The shape of the attempt (kind of host, default port or not, which
+		// fields were filled, how many tries this run) is what separates "no
+		// database on this machine" from "wrong port". Describe carries no
+		// values: no host, no user, no password.
+		attempt := inspectAttempts.Add(1)
+		shape := dbinspect.Describe(cfg)
+		shape["attempt_n"] = attempt
 		if err != nil {
 			// Category and driver code only — the raw message can carry the
 			// host, the user and the password.
 			reason, code := dbinspect.Classify(err)
 			props := map[string]any{"driver": cfg.Driver, "failure_reason": reason, "error_code": code}
+			for k, v := range shape {
+				props[k] = v
+			}
 			// Schema loading is the connector's biggest failure mode and almost
 			// all of it lands in "unknown", which cannot be acted on. Send the
 			// redacted wording for those only; a classified error already
@@ -361,7 +378,11 @@ func main() {
 			writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
 			return
 		}
-		track.Track("connector_schema_loaded", map[string]any{"driver": cfg.Driver, "tables": len(tables)})
+		props := map[string]any{"driver": cfg.Driver, "tables": len(tables)}
+		for k, v := range shape {
+			props[k] = v
+		}
+		track.Track("connector_schema_loaded", props)
 		writeJSON(w, map[string]any{"ok": true, "tables": tables, "schema": dbinspect.SchemaString(tables)})
 	})
 

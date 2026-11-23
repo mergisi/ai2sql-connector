@@ -1,6 +1,7 @@
 package dbinspect
 
 import (
+	"errors"
 	"regexp"
 	"strings"
 )
@@ -16,6 +17,10 @@ func Classify(err error) (reason, code string) {
 	if err == nil {
 		return "", ""
 	}
+	if errors.Is(err, ErrOracleServiceName) {
+		return "missing_service_name", ""
+	}
+	err = driverErr(err)
 	msg := strings.ToLower(err.Error())
 	code = extractCode(err.Error())
 
@@ -26,6 +31,13 @@ func Classify(err error) (reason, code string) {
 		"access denied", "authentication failed", "login failed",
 		"password authentication", "invalid username", "auth failed", "sqlstate 28000"):
 		return "auth_failed", code
+
+	case containsAny(msg, "sysdba", "ora-28009"):
+		return "auth_failed", code
+
+	case strings.Contains(msg, "plugin") && strings.Contains(msg, "not loaded"),
+		containsAny(msg, "unknown auth plugin", "authentication plugin"):
+		return "auth_plugin", code
 
 	case containsAny(msg, "tls", "ssl", "x509", "certificate"):
 		return "tls", code
@@ -41,7 +53,7 @@ func Classify(err error) (reason, code string) {
 
 	case containsAny(msg, "unknown database", "database does not exist",
 		"cannot open database", "ora-01017: invalid", "does not exist and login failed",
-		"error 1049", "3d000"):
+		"error 1049", "3d000", "无法打开登录所请求的数据库"):
 		return "database_missing", code
 
 	case containsAny(msg, "permission denied", "insufficient privileges",
@@ -50,6 +62,14 @@ func Classify(err error) (reason, code string) {
 
 	case containsAny(msg, "unsupported driver", "unknown driver"):
 		return "driver_unsupported", code
+
+	// Something answered, but not the database type that was picked: the
+	// PostgreSQL driver reading a MySQL greeting, for one.
+	case containsAny(msg, "unknown message type", "malformed packet"):
+		return "wrong_protocol", code
+
+	case containsAny(msg, "invalid url format", "invalid port", "missing port", "too many colons"):
+		return "bad_input", code
 	}
 	return "unknown", code
 }
@@ -104,7 +124,7 @@ func Shape(err error) string {
 	if err == nil {
 		return ""
 	}
-	s := strings.ToLower(err.Error())
+	s := strings.ToLower(driverErr(err).Error())
 	s = quoted.ReplaceAllString(s, "?")
 	out := make([]string, 0, 24)
 	for _, tok := range strings.Fields(s) {
@@ -135,3 +155,13 @@ var (
 	quoted = regexp.MustCompile("'[^']*'|\"[^\"]*\"|`[^`]*`")
 	digit  = regexp.MustCompile(`\d+`)
 )
+
+// driverErr unwraps the message Inspect shows the person, so categories and
+// shapes come from the driver's own wording and not from ours.
+func driverErr(err error) error {
+	var fe *FriendlyError
+	if errors.As(err, &fe) && fe.Raw != nil {
+		return fe.Raw
+	}
+	return err
+}

@@ -136,6 +136,8 @@
   .msg.err { display:block; background:rgba(224,82,82,.09); border:1px solid rgba(224,82,82,.35); color:#f0a0a0; }
   .msg.warn { display:block; background:rgba(232,201,106,.08); border:1px solid rgba(232,201,106,.32); color:var(--warn); }
   .msg a { color:var(--warn); }
+  .msg .next { margin-top:8px; color:var(--muted); }
+  .msg.err a { color:#f0c0c0; }
   .spin { display:inline-block; width:12px; height:12px; border:2px solid currentColor; border-top-color:transparent;
           border-radius:50%; animation:r .8s linear infinite; vertical-align:-2px; margin-right:7px; }
   @keyframes r { to { transform:rotate(360deg); } }
@@ -191,7 +193,7 @@
             <option value="oracle">Oracle</option>
           </select>
           <div class="two">
-            <div><label for="host">Host</label><input id="host" value="localhost" spellcheck="false"></div>
+            <div><label for="host">Host</label><input id="host" value="localhost" spellcheck="false" title="For a SQL Server named instance, use localhost\SQLEXPRESS"></div>
             <div><label for="port">Port</label><input id="port" value="5432" spellcheck="false"></div>
           </div>
           <label for="dbUser">Username</label>
@@ -327,7 +329,24 @@ $('driver').addEventListener('change', () => {
   $('dbName').placeholder = oracle ? 'service name, e.g. XEPDB1' : 'my_database';
 });
 
+// Shown under a schema-load error: the two ways forward when the database
+// isn't on this computer, or there isn't one to hand yet.
+const NEXT_STEPS = '<div class="next">Database not on this computer? ' +
+  '<a href="https://builder.ai2sql.io/dashboard/databases?add=1&amp;src=connector_error" target="_blank" data-ev="connector_error_cloud_clicked">Connect a cloud database in the web app</a>' +
+  ' · <a href="https://builder.ai2sql.io/dashboard/builder?src=connector_error" target="_blank" data-ev="connector_error_sample_clicked">Try the sample database</a></div>';
+$('connMsg').addEventListener('click', (e) => {
+  const a = e.target.closest('a[data-ev]');
+  if (a) fetch('/api/track', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ event: a.dataset.ev }) }).catch(()=>{});
+});
+
 $('inspect').addEventListener('click', async () => {
+  // Oracle connects to a service; without one the driver's error names no
+  // field. Ask for it here instead of failing a round-trip later.
+  if ($('driver').value === 'oracle' && !$('dbName').value.trim()) {
+    msg($('connMsg'), 'err', 'Oracle needs a service name in the Database field. It is often <b>XEPDB1</b> (Oracle XE), <b>FREEPDB1</b> (Oracle Free) or <b>ORCLPDB1</b>.');
+    $('dbName').focus();
+    return;
+  }
   $('inspect').disabled = true;
   $('inspect').innerHTML = '<span class="spin"></span>Reading schema…';
   msg($('connMsg'), '');
@@ -340,7 +359,7 @@ $('inspect').addEventListener('click', async () => {
       })
     });
     const d = await r.json();
-    if (!d.ok) { allTables = []; selected.clear(); renderTables(); msg($('connMsg'), 'err', esc(d.error)); return; }
+    if (!d.ok) { allTables = []; selected.clear(); renderTables(); msg($('connMsg'), 'err', esc(d.error) + NEXT_STEPS); return; }
     allTables = d.tables || [];
     selected.clear();
     allTables.forEach(t => selected.add(t.name));

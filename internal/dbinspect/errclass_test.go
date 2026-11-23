@@ -113,11 +113,11 @@ func TestShapeIsBounded(t *testing.T) {
 // A wrong PostgreSQL username reads `role "x" does not exist`. It used to be
 // reported as a missing database, which pointed people at the wrong field.
 func TestFriendlyWrongUsername(t *testing.T) {
-	got := friendly(errors.New(`failed to connect: FATAL: role "bob" does not exist (SQLSTATE 28000)`)).Error()
-	if !strings.Contains(got, "username") || strings.Contains(got, "database name") {
+	got := friendly(Config{Driver: "postgres"}, errors.New(`failed to connect: FATAL: role "bob" does not exist (SQLSTATE 28000)`)).Error()
+	if !strings.Contains(got, "username") || strings.Contains(strings.ToLower(got), "database name") {
 		t.Fatalf("wrong username reported as %q", got)
 	}
-	got = friendly(errors.New(`FATAL: database "shop" does not exist (SQLSTATE 3D000)`)).Error()
+	got = friendly(Config{Driver: "postgres"}, errors.New(`FATAL: database "shop" does not exist (SQLSTATE 3D000)`)).Error()
 	if !strings.Contains(got, "database name") {
 		t.Fatalf("missing database reported as %q", got)
 	}
